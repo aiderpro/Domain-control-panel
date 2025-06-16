@@ -139,7 +139,7 @@ router.post('/validate', (req, res) => {
   res.json(validation);
 });
 
-// Add domain endpoint
+// Add domain endpoint - creates actual nginx configuration
 router.post('/add', async (req, res) => {
   const { domain } = req.body;
   
@@ -159,7 +159,9 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-    console.log(`Adding domain: ${domain}`);
+    console.log(`Creating nginx configuration for domain: ${domain}`);
+    
+    const nginxConfig = await createNginxConfig(domain);
     
     if (req.io) {
       req.io.emit('domain_added', { domain, success: true });
@@ -167,8 +169,9 @@ router.post('/add', async (req, res) => {
     
     res.json({
       success: true,
-      message: `Domain ${domain} added successfully`,
-      domain: domain
+      message: `Domain ${domain} added successfully with nginx configuration`,
+      domain: domain,
+      configPath: `/etc/nginx/sites-available/${domain}`
     });
   } catch (error) {
     console.error('Error adding domain:', error);
@@ -179,5 +182,141 @@ router.post('/add', async (req, res) => {
     });
   }
 });
+
+// Create nginx configuration for domain
+async function createNginxConfig(domain) {
+  const fs = require('fs').promises;
+  const path = require('path');
+  const { spawn } = require('child_process');
+  
+  const sitesAvailable = '/etc/nginx/sites-available';
+  const sitesEnabled = '/etc/nginx/sites-enabled';
+  const configPath = path.join(sitesAvailable, domain);
+  
+  // Generate nginx configuration
+  const nginxConfig = `server {
+    listen 80;
+    server_name ${domain};
+    
+    root /var/www/html;
+    index index.html index.htm index.php;
+    
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+    
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss;
+    
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    
+    # PHP processing (if needed)
+    location ~ \\.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+    }
+    
+    # Static file caching
+    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|pdf|txt)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Deny access to hidden files
+    location ~ /\\. {
+        deny all;
+    }
+    
+    # Log files
+    access_log /var/log/nginx/${domain}_access.log;
+    error_log /var/log/nginx/${domain}_error.log;
+}`;
+
+  try {
+    // Write nginx configuration file
+    await fs.writeFile(configPath, nginxConfig);
+    console.log(`Created nginx config: ${configPath}`);
+    
+    // Create symbolic link to enable site
+    const enabledPath = path.join(sitesEnabled, domain);
+    try {
+      await fs.symlink(configPath, enabledPath);
+      console.log(`Enabled site: ${enabledPath}`);
+    } catch (linkError) {
+      if (linkError.code !== 'EEXIST') {
+        throw linkError;
+      }
+      console.log(`Site already enabled: ${enabledPath}`);
+    }
+    
+    // Test nginx configuration
+    await testNginxConfig();
+    
+    // Reload nginx
+    await reloadNginx();
+    
+    return {
+      configPath,
+      enabledPath,
+      domain
+    };
+    
+  } catch (error) {
+    console.error('Error creating nginx config:', error);
+    throw error;
+  }
+}
+
+// Test nginx configuration
+function testNginxConfig() {
+  return new Promise((resolve, reject) => {
+    const process = spawn('nginx', ['-t'], { stdio: 'pipe' });
+    
+    let output = '';
+    process.stderr.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    process.on('close', (code) => {
+      if (code === 0) {
+        console.log('Nginx configuration test passed');
+        resolve(output);
+      } else {
+        console.error('Nginx configuration test failed:', output);
+        reject(new Error(`Nginx config test failed: ${output}`));
+      }
+    });
+  });
+}
+
+// Reload nginx configuration
+function reloadNginx() {
+  return new Promise((resolve, reject) => {
+    const process = spawn('systemctl', ['reload', 'nginx'], { stdio: 'pipe' });
+    
+    let output = '';
+    process.stderr.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    process.on('close', (code) => {
+      if (code === 0) {
+        console.log('Nginx reloaded successfully');
+        resolve(output);
+      } else {
+        console.error('Nginx reload failed:', output);
+        reject(new Error(`Nginx reload failed: ${output}`));
+      }
+    });
+  });
+}
 
 module.exports = router;

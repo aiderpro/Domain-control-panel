@@ -1184,13 +1184,26 @@ class SSLManager {
         return;
       }
 
-      // Domain is valid, show success message
-      this.showValidationMessage(`Domain ${domain} is valid and ready for nginx configuration`, 'success');
+      // Domain is valid, proceed with nginx configuration creation
+      this.showValidationMessage('Domain valid, creating nginx configuration...', 'success');
       
-      // Clear form but don't add to list - user needs to configure nginx manually
-      this.addNotification('info', `Domain ${domain} validated successfully. Configure nginx manually on your server to see it in the list.`, true);
-      this.toggleAddDomainForm(); // Hide form
-      input.value = ''; // Clear input
+      try {
+        const response = await this.api('POST', '/domains/add', { domain });
+        
+        if (response.success) {
+          this.addNotification('success', `Domain ${domain} added with nginx configuration at ${response.configPath}`, true);
+          this.toggleAddDomainForm(); // Hide form
+          input.value = ''; // Clear input
+          
+          // Refresh domain list to show the new domain
+          await this.loadDomains();
+        } else {
+          this.showValidationMessage(response.error || 'Failed to create nginx configuration', 'error');
+        }
+      } catch (addError) {
+        console.error('Error adding domain to nginx:', addError);
+        this.showValidationMessage(`Failed to create nginx configuration: ${addError.response?.data?.message || addError.message}`, 'error');
+      }
     } catch (error) {
       this.showValidationMessage(error.response?.data?.error || error.message, 'error');
     }
