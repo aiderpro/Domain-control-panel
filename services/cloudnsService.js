@@ -204,62 +204,59 @@ class CloudNSService {
           });
         }
 
-        // Check if certificate already exists
-        const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
+        // Use acme.sh for fully automated DNS certificate creation
+        const AcmeService = require('./acmeService');
+        const acmeService = new AcmeService();
         
-        try {
-          await execAsync(`test -f ${certPath}`);
-          
-          // Certificate exists, proceed with nginx configuration
-          if (io) {
-            io.emit('ssl_install_progress', {
-              domain,
-              stage: 'certificate_found',
-              message: 'SSL certificate found. Updating nginx configuration...'
-            });
-          }
-
-          await this.updateNginxSSLConfig(domain);
-          await this.testAndReloadNginx(domain, io);
-          
-          if (io) {
-            io.emit('ssl_install_complete', {
-              domain,
-              method: 'dns',
-              success: true,
-              message: 'SSL certificate configuration updated successfully.'
-            });
-          }
-
-          resolve({
-            success: true,
-            method: 'dns',
-            message: 'SSL certificate configuration updated successfully.',
-            certificatePath: certPath,
-            keyPath: `/etc/letsencrypt/live/${domain}/privkey.pem`
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'acme_init',
+            message: 'Starting automated SSL certificate creation with acme.sh...'
           });
-          
-        } catch (certCheckError) {
-          // Certificate doesn't exist, provide manual creation instructions
-          const error = 'SSL certificate not found. Please create certificate manually first.';
-          
-          if (io) {
-            io.emit('ssl_install_error', {
-              domain,
-              method: 'dns',
-              error: error,
-              certificate_instructions: [
-                '1. Create SSL certificate using DNS challenge:',
-                `   sudo certbot certonly --manual --preferred-challenges=dns -d ${domain}`,
-                '2. Follow prompts to add DNS TXT record to your CloudNS account',
-                '3. After certificate creation, try SSL installation again',
-                '4. Certificate will be stored in /etc/letsencrypt/live/' + domain + '/'
-              ]
-            });
-          }
-
-          reject(new Error(error));
         }
+
+        // Create certificate using acme.sh with CloudNS DNS API
+        const certificateResult = await acmeService.issueCertificate(domain, email, io);
+        
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'nginx_update',
+            message: 'Certificate created successfully. Updating nginx configuration...'
+          });
+        }
+
+        // Update nginx configuration with the new certificate
+        await this.updateNginxSSLConfig(domain);
+        
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'nginx_test',
+            message: 'Testing nginx configuration...'
+          });
+        }
+
+        // Test and reload nginx
+        await this.testAndReloadNginx(domain, io);
+        
+        if (io) {
+          io.emit('ssl_install_complete', {
+            domain,
+            method: 'dns',
+            success: true,
+            message: 'SSL certificate installed and configured automatically using acme.sh with CloudNS DNS.'
+          });
+        }
+
+        resolve({
+          success: true,
+          method: 'dns',
+          message: 'SSL certificate installed and configured automatically using acme.sh with CloudNS DNS.',
+          certificatePath: certificateResult.certificatePath,
+          keyPath: certificateResult.keyPath
+        });
 
       } catch (error) {
         console.error('DNS SSL installation error:', error);
@@ -277,57 +274,7 @@ class CloudNSService {
     });
   }
 
-  /**
-   * Create SSL certificate using DNS challenge
-   */
-  async createCertificateWithDNS(domain, email, io = null) {
-    return new Promise((resolve, reject) => {
-      if (io) {
-        io.emit('ssl_install_progress', {
-          domain,
-          stage: 'certificate_creation',
-          message: 'DNS method requires manual certificate creation. Simulating for demo...'
-        });
-      }
 
-      // Note: Real DNS certificate creation would require:
-      // 1. certbot certonly --manual --preferred-challenges=dns -d domain.com
-      // 2. Manual DNS TXT record creation when prompted
-      // 3. Certificate files created in /etc/letsencrypt/live/domain.com/
-      
-      // For demo purposes, we'll create placeholder certificate files
-      setTimeout(async () => {
-        try {
-          const certDir = `/etc/letsencrypt/live/${domain}`;
-          const placeholderCert = `# Placeholder certificate for ${domain}\n# In production, this would be a real Let's Encrypt certificate`;
-          
-          // Create certificate directory and placeholder files
-          await execAsync(`sudo mkdir -p ${certDir}`);
-          await execAsync(`echo '${placeholderCert}' | sudo tee ${certDir}/fullchain.pem`);
-          await execAsync(`echo '${placeholderCert}' | sudo tee ${certDir}/privkey.pem`);
-          await execAsync(`sudo chmod 644 ${certDir}/fullchain.pem ${certDir}/privkey.pem`);
-          
-          if (io) {
-            io.emit('ssl_install_progress', {
-              domain,
-              stage: 'dns_verification',
-              message: 'Demo certificate files created. In production, use real certbot with DNS challenge.'
-            });
-          }
-          resolve();
-        } catch (error) {
-          if (io) {
-            io.emit('ssl_install_progress', {
-              domain,
-              stage: 'certificate_error',
-              message: `Certificate creation failed: ${error.message}`
-            });
-          }
-          reject(error);
-        }
-      }, 2000);
-    });
-  }
 
   /**
    * Update nginx configuration to use SSL certificate

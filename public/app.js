@@ -913,12 +913,12 @@ class SSLManager {
                         <div class="mb-3">
                           <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
                           <select id="ssl-method-${domain.domain}" class="form-select">
-                            <option value="nginx" selected>Nginx Method (Fully Automated)</option>
-                            <option value="dns">DNS Method (Certificate Check + Auto Config)</option>
+                            <option value="nginx" selected>Nginx Method (Web Server Verification)</option>
+                            <option value="dns">DNS Method (CloudNS API - Fully Automated)</option>
                           </select>
                           <div class="form-text">
-                            <strong>Nginx:</strong> Complete automation - certificate creation and configuration<br>
-                            <strong>DNS:</strong> Checks for existing certificate, provides creation steps if needed
+                            <strong>Nginx:</strong> Uses web server verification (requires port 80 accessible)<br>
+                            <strong>DNS:</strong> Uses acme.sh with CloudNS API for complete automation
                           </div>
                         </div>
                       </div>

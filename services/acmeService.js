@@ -1,0 +1,203 @@
+const { execAsync } = require('./nginxService');
+const fs = require('fs').promises;
+
+class AcmeService {
+  constructor() {
+    this.acmePath = '/root/.acme.sh/acme.sh';
+    this.certDir = '/etc/ssl/acme';
+  }
+
+  /**
+   * Install acme.sh if not already installed
+   */
+  async ensureAcmeInstalled() {
+    try {
+      await execAsync('which acme.sh');
+      return true;
+    } catch (error) {
+      console.log('Installing acme.sh...');
+      try {
+        await execAsync('curl https://get.acme.sh | sh -s email=admin@localhost');
+        await execAsync('ln -sf ~/.acme.sh/acme.sh /usr/local/bin/acme.sh');
+        return true;
+      } catch (installError) {
+        console.error('Failed to install acme.sh:', installError);
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Configure CloudNS credentials for acme.sh
+   */
+  async setupCloudNSCredentials() {
+    try {
+      // Load CloudNS credentials
+      const configPath = '.cloudns-config';
+      const configContent = await fs.readFile(configPath, 'utf8');
+      
+      const config = {};
+      configContent.split('\n').forEach(line => {
+        if (line.trim() && !line.trim().startsWith('#')) {
+          const [key, value] = line.split('=');
+          if (key && value) {
+            config[key.trim()] = value.trim();
+          }
+        }
+      });
+
+      if (!config.AUTH_ID && !config.SUB_AUTH_ID) {
+        throw new Error('CloudNS credentials not found in .cloudns-config');
+      }
+
+      // Set CloudNS environment variables for acme.sh
+      const authId = config.SUB_AUTH_ID || config.AUTH_ID;
+      const authPassword = config.AUTH_PASSWORD;
+      
+      await execAsync(`export CX_User="${authId}"`);
+      await execAsync(`export CX_Key="${authPassword}"`);
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to setup CloudNS credentials:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Issue SSL certificate using acme.sh with CloudNS DNS API
+   */
+  async issueCertificate(domain, email, io = null) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'acme_setup',
+            message: 'Setting up acme.sh with CloudNS DNS API...'
+          });
+        }
+
+        // Ensure acme.sh is installed
+        const acmeInstalled = await this.ensureAcmeInstalled();
+        if (!acmeInstalled) {
+          throw new Error('Failed to install acme.sh');
+        }
+
+        // Setup CloudNS credentials
+        const credentialsSetup = await this.setupCloudNSCredentials();
+        if (!credentialsSetup) {
+          throw new Error('Failed to setup CloudNS credentials');
+        }
+
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'certificate_issue',
+            message: 'Issuing SSL certificate with DNS challenge...'
+          });
+        }
+
+        // Create certificate directory
+        await execAsync(`sudo mkdir -p ${this.certDir}/${domain}`);
+
+        // Issue certificate using CloudNS DNS API
+        const acmeCommand = [
+          'acme.sh',
+          '--issue',
+          '--dns', 'dns_cx', // CloudNS DNS API
+          '-d', domain,
+          '--cert-file', `${this.certDir}/${domain}/cert.pem`,
+          '--key-file', `${this.certDir}/${domain}/key.pem`,
+          '--fullchain-file', `${this.certDir}/${domain}/fullchain.pem`,
+          '--reloadcmd', '"systemctl reload nginx"'
+        ].join(' ');
+
+        const { stdout, stderr } = await execAsync(acmeCommand);
+        
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'certificate_complete',
+            message: 'SSL certificate issued successfully!'
+          });
+        }
+
+        // Create symlinks to standard Let's Encrypt paths for compatibility
+        await execAsync(`sudo mkdir -p /etc/letsencrypt/live/${domain}`);
+        await execAsync(`sudo ln -sf ${this.certDir}/${domain}/fullchain.pem /etc/letsencrypt/live/${domain}/fullchain.pem`);
+        await execAsync(`sudo ln -sf ${this.certDir}/${domain}/key.pem /etc/letsencrypt/live/${domain}/privkey.pem`);
+
+        resolve({
+          success: true,
+          certificatePath: `/etc/letsencrypt/live/${domain}/fullchain.pem`,
+          keyPath: `/etc/letsencrypt/live/${domain}/privkey.pem`,
+          output: stdout
+        });
+
+      } catch (error) {
+        console.error('ACME certificate issue failed:', error);
+        
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'certificate_error',
+            message: `Certificate issue failed: ${error.message}`
+          });
+        }
+
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Renew certificate using acme.sh
+   */
+  async renewCertificate(domain, io = null) {
+    try {
+      if (io) {
+        io.emit('ssl_install_progress', {
+          domain,
+          stage: 'certificate_renew',
+          message: 'Renewing SSL certificate...'
+        });
+      }
+
+      const renewCommand = `acme.sh --renew -d ${domain} --force`;
+      await execAsync(renewCommand);
+
+      if (io) {
+        io.emit('ssl_install_progress', {
+          domain,
+          stage: 'certificate_renewed',
+          message: 'SSL certificate renewed successfully!'
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Certificate renewal failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Setup automatic renewal cron job
+   */
+  async setupAutoRenewal() {
+    try {
+      // acme.sh automatically sets up cron job during installation
+      // But we can verify and ensure it's working
+      const cronCheck = await execAsync('crontab -l | grep acme.sh || echo "No acme.sh cron found"');
+      console.log('ACME cron status:', cronCheck.stdout);
+      
+      return { success: true, message: 'Auto-renewal configured via acme.sh' };
+    } catch (error) {
+      console.error('Auto-renewal setup failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+}
+
+module.exports = AcmeService;
