@@ -1134,16 +1134,31 @@ class SSLManager {
     }
   }
 
-  async validateDomain(domain) {
-    try {
-      console.log('Validating domain:', domain);
-      const response = await this.api('POST', '/domains/validate', { domain });
-      console.log('Validation response:', response);
-      return response;
-    } catch (error) {
-      console.error('Validation error:', error);
-      return { valid: false, error: error.response?.data?.error || error.message };
+  validateDomain(domain) {
+    // Client-side domain validation - no server call needed
+    console.log('Validating domain:', domain);
+    
+    // Remove protocol if present
+    domain = domain.replace(/^https?:\/\//, '');
+    
+    // Basic domain validation regex
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+    
+    if (!domainRegex.test(domain)) {
+      return { valid: false, error: 'Invalid domain format' };
     }
+    
+    if (domain.length > 253) {
+      return { valid: false, error: 'Domain name too long' };
+    }
+    
+    const parts = domain.split('.');
+    if (parts.length < 2 || parts[parts.length - 1].length < 2) {
+      return { valid: false, error: 'Invalid top-level domain' };
+    }
+    
+    console.log('Domain validation passed:', domain);
+    return { valid: true };
   }
 
   async addDomainFromForm() {
@@ -1162,28 +1177,20 @@ class SSLManager {
     this.showValidationMessage('Validating domain...', 'info');
 
     try {
-      // Validate domain format
-      const validation = await this.validateDomain(domain);
+      // Validate domain format (client-side)
+      const validation = this.validateDomain(domain);
       if (!validation.valid) {
         this.showValidationMessage(validation.error, 'error');
         return;
       }
 
-      // Domain is valid, proceed with addition
-      this.showValidationMessage('Domain valid, adding to nginx...', 'success');
+      // Domain is valid, show success message
+      this.showValidationMessage(`Domain ${domain} is valid and ready for nginx configuration`, 'success');
       
-      const response = await this.api('POST', '/domains/add', { domain });
-      
-      if (response.success) {
-        this.addNotification('success', `Domain ${domain} added successfully`, true);
-        this.toggleAddDomainForm(); // Hide form
-        input.value = ''; // Clear input
-        
-        // Force refresh domain list
-        await this.loadDomains();
-      } else {
-        this.showValidationMessage(response.error || 'Failed to add domain', 'error');
-      }
+      // Clear form but don't add to list - user needs to configure nginx manually
+      this.addNotification('info', `Domain ${domain} validated successfully. Configure nginx manually on your server to see it in the list.`, true);
+      this.toggleAddDomainForm(); // Hide form
+      input.value = ''; // Clear input
     } catch (error) {
       this.showValidationMessage(error.response?.data?.error || error.message, 'error');
     }
