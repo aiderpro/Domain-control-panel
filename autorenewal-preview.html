@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSL Autorenewal Management - Preview</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .status-enabled { color: #28a745; }
+        .status-disabled { color: #6c757d; }
+        .status-error { color: #dc3545; }
+        .status-warning { color: #ffc107; }
+        .renewal-card { border-left: 4px solid #28a745; }
+        .renewal-card.disabled { border-left-color: #6c757d; }
+        .renewal-card.error { border-left-color: #dc3545; }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid mt-4">
+        <!-- Navigation Tabs Preview -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" type="button">
+                                    <i class="fas fa-globe me-1"></i> Domain Management
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" type="button">
+                                    <i class="fas fa-sync-alt me-1"></i> SSL Autorenewal
+                                    <span class="badge bg-success ms-1">12 Active</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Autorenewal Management Content -->
+        <div class="row">
+            <!-- Summary Cards -->
+            <div class="col-12 mb-4">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-grow-1">
+                                        <h6 class="card-title mb-0">Active Renewals</h6>
+                                        <h2 class="mb-0">12</h2>
+                                    </div>
+                                    <div class="ms-3">
+                                        <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-grow-1">
+                                        <h6 class="card-title mb-0">Next Renewal</h6>
+                                        <h2 class="mb-0">3 days</h2>
+                                    </div>
+                                    <div class="ms-3">
+                                        <i class="fas fa-clock fa-2x opacity-75"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-grow-1">
+                                        <h6 class="card-title mb-0">Last Renewal</h6>
+                                        <h2 class="mb-0">2h ago</h2>
+                                    </div>
+                                    <div class="ms-3">
+                                        <i class="fas fa-history fa-2x opacity-75"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-danger text-white">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center">
+                                    <div class="flex-grow-1">
+                                        <h6 class="card-title mb-0">Failed</h6>
+                                        <h2 class="mb-0">0</h2>
+                                    </div>
+                                    <div class="ms-3">
+                                        <i class="fas fa-exclamation-triangle fa-2x opacity-75"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Global Controls -->
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Global Autorenewal Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="globalAutoRenewal" checked>
+                                    <label class="form-check-label fw-bold" for="globalAutoRenewal">
+                                        <i class="fas fa-globe me-1"></i> Enable Global Autorenewal
+                                    </label>
+                                </div>
+                                <small class="text-muted">Automatically renew SSL certificates 30 days before expiry</small>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Renewal Days Before Expiry</label>
+                                <input type="number" class="form-control" value="30" min="1" max="89">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Check Frequency</label>
+                                <select class="form-select">
+                                    <option value="daily" selected>Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="hourly">Hourly</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Domain Autorenewal Status -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Domain Autorenewal Status</h5>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-primary btn-sm">
+                                <i class="fas fa-sync-alt me-1"></i> Refresh Status
+                            </button>
+                            <button class="btn btn-success btn-sm">
+                                <i class="fas fa-play me-1"></i> Run Check Now
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Autorenewal Status</th>
+                                        <th>SSL Expiry</th>
+                                        <th>Next Check</th>
+                                        <th>Last Renewal</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="renewal-card">
+                                        <td>
+                                            <strong>example.com</strong>
+                                            <br><small class="text-muted">Let's Encrypt</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-check-circle me-1"></i> Enabled
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="text-warning">
+                                                <i class="fas fa-clock me-1"></i> 28 days
+                                            </span>
+                                            <br><small class="text-muted">Apr 15, 2025</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-info">Tomorrow</span>
+                                            <br><small class="text-muted">Auto check daily</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-success">2 hours ago</span>
+                                            <br><small class="text-muted">Success</small>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <button class="btn btn-outline-warning btn-sm" title="Disable Autorenewal">
+                                                    <i class="fas fa-pause"></i>
+                                                </button>
+                                                <button class="btn btn-outline-primary btn-sm" title="Force Renewal">
+                                                    <i class="fas fa-sync-alt"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr class="renewal-card">
+                                        <td>
+                                            <strong>jisin.eezix.com</strong>
+                                            <br><small class="text-muted">Let's Encrypt</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-check-circle me-1"></i> Enabled
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="text-success">
+                                                <i class="fas fa-shield-alt me-1"></i> 87 days
+                                            </span>
+                                            <br><small class="text-muted">Sep 14, 2025</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-info">Tomorrow</span>
+                                            <br><small class="text-muted">Auto check daily</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted">Never</span>
+                                            <br><small class="text-muted">Certificate is new</small>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <button class="btn btn-outline-warning btn-sm" title="Disable Autorenewal">
+                                                    <i class="fas fa-pause"></i>
+                                                </button>
+                                                <button class="btn btn-outline-primary btn-sm" title="Force Renewal">
+                                                    <i class="fas fa-sync-alt"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr class="renewal-card disabled">
+                                        <td>
+                                            <strong>flitgo.com</strong>
+                                            <br><small class="text-muted">No SSL Certificate</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">
+                                                <i class="fas fa-times-circle me-1"></i> N/A
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted">
+                                                <i class="fas fa-minus me-1"></i> No SSL
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted">-</span>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted">-</span>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-outline-success btn-sm" title="Install SSL First">
+                                                <i class="fas fa-plus me-1"></i> Install SSL
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity Log -->
+            <div class="col-12 mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Recent Autorenewal Activity</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="list-group list-group-flush">
+                            <div class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold text-success">
+                                        <i class="fas fa-check-circle me-1"></i> example.com - Renewal Successful
+                                    </div>
+                                    <small class="text-muted">Certificate renewed successfully, expires Apr 15, 2025</small>
+                                </div>
+                                <small class="text-muted">2 hours ago</small>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold text-info">
+                                        <i class="fas fa-info-circle me-1"></i> jisin.eezix.com - Check Completed
+                                    </div>
+                                    <small class="text-muted">Certificate is valid for 87 more days, no renewal needed</small>
+                                </div>
+                                <small class="text-muted">1 day ago</small>
+                            </div>
+                            <div class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold text-primary">
+                                        <i class="fas fa-cog me-1"></i> Global Autorenewal Enabled
+                                    </div>
+                                    <small class="text-muted">Automatic renewal enabled for all SSL certificates</small>
+                                </div>
+                                <small class="text-muted">2 days ago</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
