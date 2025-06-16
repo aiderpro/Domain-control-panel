@@ -28,21 +28,16 @@ class SSLManager {
   }
 
   getApiBaseUrl() {
-    // For development, use current origin
-    // For production, ensure we use the correct base URL
+    // Always use current origin for API calls
     const currentHost = window.location.host;
     const protocol = window.location.protocol;
+    const baseUrl = `${protocol}//${currentHost}`;
     
     console.log('Current host:', currentHost);
     console.log('Protocol:', protocol);
+    console.log('Calculated API Base URL:', baseUrl);
     
-    // If running on localhost or replit preview, use current origin
-    if (currentHost.includes('localhost') || currentHost.includes('replit.dev')) {
-      return `${protocol}//${currentHost}`;
-    }
-    
-    // For production deployment, use current origin
-    return `${protocol}//${currentHost}`;
+    return baseUrl;
   }
 
   async init() {
