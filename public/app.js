@@ -114,7 +114,24 @@ class SSLManager {
       this.renderSSLPanel();
     } catch (error) {
       console.error('Error loading domains:', error);
-      this.addNotification('error', 'Failed to load domains: ' + error.message, true);
+      this.loading = false;
+      
+      // Safely show error message
+      const container = document.getElementById('domain-list-container');
+      if (container) {
+        container.innerHTML = `
+          <div class="text-center py-5">
+            <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
+            <h5 class="text-danger">Failed to load domains</h5>
+            <p class="text-muted">${error.message || 'Unknown error occurred'}</p>
+            <button class="btn btn-primary" onclick="sslManager.loadDomains()">
+              <i class="fas fa-retry me-1"></i> Try Again
+            </button>
+          </div>
+        `;
+      }
+      
+      this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
     } finally {
       this.loading = false;
     }
@@ -337,8 +354,10 @@ class SSLManager {
     const config = statusConfig[this.connectionStatus] || statusConfig.error;
     const statusElement = document.getElementById('connection-status');
     
-    statusElement.className = `badge ${config.class} d-flex align-items-center gap-1`;
-    statusElement.innerHTML = `<i class="${config.icon}"></i> ${config.text}`;
+    if (statusElement) {
+      statusElement.className = `badge ${config.class} d-flex align-items-center gap-1`;
+      statusElement.innerHTML = `<i class="${config.icon}"></i> ${config.text}`;
+    }
   }
 
   renderApp() {
@@ -403,6 +422,8 @@ class SSLManager {
 
   renderDashboard() {
     const mainContent = document.getElementById('main-content');
+    if (!mainContent) return;
+    
     mainContent.innerHTML = `
       <!-- Stats Overview -->
       <div class="row mb-4">
@@ -516,6 +537,24 @@ class SSLManager {
     if (this.connectionStatus === 'connected') {
       this.renderDashboard();
     }
+  }
+
+  safeSetContent(elementId, content) {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.innerHTML = content;
+      return true;
+    }
+    return false;
+  }
+
+  safeSetText(elementId, text) {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.textContent = text;
+      return true;
+    }
+    return false;
   }
 
   renderDomainList() {
@@ -954,6 +993,7 @@ class SSLManager {
 
   renderNotifications() {
     const container = document.getElementById('notifications');
+    if (!container) return;
     
     container.innerHTML = this.notifications.map(notification => `
       <div class="alert alert-${notification.type === 'error' ? 'danger' : notification.type} alert-dismissible fade show" role="alert">
