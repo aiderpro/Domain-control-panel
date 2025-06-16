@@ -37,27 +37,35 @@ class SSLManager {
   }
 
   async init() {
-    // Ensure DOM is ready
+    // Wait for DOM to be completely ready
     if (document.readyState === 'loading') {
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
     
+    // Initialize UI components in order
     this.renderApp();
     this.renderDashboard();
+    
+    // Wait for DOM elements to be rendered
+    await this.ensureDOMReady();
+    
     this.bindEvents();
     this.initSocket();
     
-    // Load domains after dashboard is rendered
-    await this.waitForDOMReady();
+    // Load domains after everything is set up
     this.loadDomains();
   }
   
-  async waitForDOMReady() {
+  async ensureDOMReady() {
     // Wait for dashboard elements to be in DOM
     let attempts = 0;
-    while (!document.getElementById('domain-list-container') && attempts < 50) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+    while (!document.getElementById('domain-list-container') && attempts < 100) {
+      await new Promise(resolve => setTimeout(resolve, 50));
       attempts++;
+    }
+    
+    if (!document.getElementById('domain-list-container')) {
+      console.error('Dashboard container not found after waiting');
     }
   }
 
@@ -175,6 +183,12 @@ class SSLManager {
   }
 
   async loadDomains() {
+    const container = document.getElementById('domain-list-container');
+    if (!container) {
+      console.error('Domain container not found during loadDomains');
+      return;
+    }
+
     try {
       this.loading = true;
       this.renderLoading();
@@ -182,37 +196,30 @@ class SSLManager {
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
       
-      this.loading = false;
-      
-      this.applyFiltersAndSort();
-      this.updateStats();
-      this.renderDomainList();
-      this.renderSSLPanel();
-      
     } catch (error) {
       console.error('Error loading domains:', error);
+      
+      container.innerHTML = `
+        <div class="text-center py-5">
+          <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
+          <h5 class="text-danger">Failed to load domains</h5>
+          <p class="text-muted">${error.message || 'Unknown error occurred'}</p>
+          <button class="btn btn-primary" onclick="sslManager.loadDomains()">
+            <i class="fas fa-retry me-1"></i> Try Again
+          </button>
+        </div>
+      `;
+      
+      this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
+      return;
+    } finally {
       this.loading = false;
-      
-      const container = document.getElementById('domain-list-container');
-      if (container) {
-        container.innerHTML = `
-          <div class="text-center py-5">
-            <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
-            <h5 class="text-danger">Failed to load domains</h5>
-            <p class="text-muted">${error.message || 'Unknown error occurred'}</p>
-            <button class="btn btn-primary" onclick="sslManager.loadDomains()">
-              <i class="fas fa-retry me-1"></i> Try Again
-            </button>
-          </div>
-        `;
-      }
-      
-      try {
-        this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
-      } catch (notificationError) {
-        console.error('Failed to add notification:', notificationError);
-      }
     }
+    
+    this.applyFiltersAndSort();
+    this.updateStats();
+    this.renderDomainList();
+    this.renderSSLPanel();
   }
 
   applyFiltersAndSort() {
@@ -319,117 +326,88 @@ class SSLManager {
   }
 
   async refreshDomains() {
-    try {
-      console.log('Refreshing domains...');
-      
-      // Update the refresh button to show loading state
-      const refreshBtn = document.querySelector('button[onclick="sslManager.refreshDomains()"]');
-      if (refreshBtn) {
-        const originalHTML = refreshBtn.innerHTML;
-        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Refreshing...';
-        refreshBtn.disabled = true;
-        
-        // Restore button after operation
-        setTimeout(() => {
-          refreshBtn.innerHTML = originalHTML;
-          refreshBtn.disabled = false;
-        }, 2000);
-      }
-      
-      await this.loadDomains();
-      this.addNotification('success', 'Domains refreshed successfully', false);
-    } catch (error) {
-      console.error('Error refreshing domains:', error);
-      this.addNotification('error', 'Failed to refresh domains: ' + error.message, true);
-    }
+    await this.loadDomains();
   }
 
   async installSSL(domain, email) {
     try {
-      await this.api('POST', '/ssl/install', { domain, email });
-      this.addNotification('info', `SSL installation started for ${domain}...`, false);
+      this.addNotification('info', `Starting SSL installation for ${domain}...`, false);
+      
+      const response = await this.api('POST', '/ssl/install', { domain, email });
+      
+      if (response.success) {
+        this.addNotification('success', `SSL installation started for ${domain}`, false);
+      } else {
+        this.addNotification('error', `Failed to start SSL installation: ${response.error}`, true);
+      }
     } catch (error) {
-      this.addNotification('error', `Failed to install SSL: ${error.response?.data?.message || error.message}`, true);
+      console.error('SSL installation error:', error);
+      this.addNotification('error', `SSL installation failed: ${error.message}`, true);
     }
   }
 
   async renewSSL(domain) {
     try {
-      await this.api('POST', '/ssl/renew', { domain });
-      this.addNotification('info', `SSL renewal started for ${domain}...`, false);
+      this.addNotification('info', `Starting SSL renewal for ${domain}...`, false);
+      
+      const response = await this.api('POST', '/ssl/renew', { domain });
+      
+      if (response.success) {
+        this.addNotification('success', `SSL renewal started for ${domain}`, false);
+      } else {
+        this.addNotification('error', `Failed to start SSL renewal: ${response.error}`, true);
+      }
     } catch (error) {
-      this.addNotification('error', `Failed to renew SSL: ${error.response?.data?.message || error.message}`, true);
+      console.error('SSL renewal error:', error);
+      this.addNotification('error', `SSL renewal failed: ${error.message}`, true);
     }
   }
 
   async renewAllSSL() {
     try {
-      await this.api('POST', '/ssl/renew-all');
-      this.addNotification('info', 'Renewing all SSL certificates...', false);
+      this.addNotification('info', 'Starting SSL renewal for all domains...', false);
+      
+      const response = await this.api('POST', '/ssl/renew-all');
+      
+      if (response.success) {
+        this.addNotification('success', 'SSL renewal started for all domains', false);
+      } else {
+        this.addNotification('error', `Failed to start SSL renewal: ${response.error}`, true);
+      }
     } catch (error) {
-      this.addNotification('error', `Failed to renew all certificates: ${error.response?.data?.message || error.message}`, true);
+      console.error('SSL renewal error:', error);
+      this.addNotification('error', `SSL renewal failed: ${error.message}`, true);
     }
   }
 
   updateStats() {
-    const total = this.domains.length;
-    const withSSL = this.domains.filter(d => d.ssl?.hasSSL).length;
-    const expiringSoon = this.domains.filter(d => 
-      d.ssl?.hasSSL && d.ssl?.isExpiringSoon && !d.ssl?.isExpired
-    ).length;
-    const expired = this.domains.filter(d => 
-      d.ssl?.hasSSL && d.ssl?.isExpired
-    ).length;
+    const stats = {
+      total: this.domains.length,
+      withSSL: this.domains.filter(d => d.ssl?.hasSSL).length,
+      expiring: this.domains.filter(d => d.ssl?.isExpiringSoon && !d.ssl?.isExpired).length,
+      expired: this.domains.filter(d => d.ssl?.isExpired).length
+    };
 
-    const statTotal = document.getElementById('stat-total');
-    const statSSL = document.getElementById('stat-ssl');
-    const statExpiring = document.getElementById('stat-expiring');
-    const statExpired = document.getElementById('stat-expired');
-    
-    if (statTotal) statTotal.textContent = total;
-    if (statSSL) statSSL.textContent = withSSL;
-    if (statExpiring) statExpiring.textContent = expiringSoon;
-    if (statExpired) statExpired.textContent = expired;
-    
-    // Update filtered stats
-    const filteredStats = document.getElementById('filtered-stats');
-    if (filteredStats) {
-      filteredStats.innerHTML = `Showing ${this.filteredDomains.length} of ${total} domains`;
-    }
+    this.safeSetText('stat-total', stats.total);
+    this.safeSetText('stat-ssl', stats.withSSL);
+    this.safeSetText('stat-expiring', stats.expiring);
+    this.safeSetText('stat-expired', stats.expired);
   }
 
   selectDomain(domain) {
     this.selectedDomain = domain;
-    
-    // Update table selection
-    document.querySelectorAll('#domain-table tbody tr').forEach(row => {
-      row.classList.remove('table-active');
-    });
-    
-    const selectedRow = document.querySelector(`[data-domain="${domain.domain}"]`);
-    if (selectedRow) {
-      selectedRow.classList.add('table-active');
-    }
-    
+    this.renderDomainList();
     this.renderSSLPanel();
   }
 
   addNotification(type, message, persistent = false) {
-    const notification = {
-      id: Date.now() + Math.random(),
-      type,
-      message,
-      timestamp: new Date(),
-      persistent
-    };
-
+    const id = Date.now();
+    const notification = { id, type, message, persistent };
     this.notifications.push(notification);
     this.renderNotifications();
 
     if (!persistent) {
-      setTimeout(() => {
-        this.removeNotification(notification.id);
-      }, 5000);
+      setTimeout(() => this.removeNotification(id), 5000);
     }
   }
 
@@ -439,80 +417,62 @@ class SSLManager {
   }
 
   updateConnectionStatus() {
-    const statusConfig = {
-      connecting: { class: 'bg-warning', text: 'Connecting...', icon: 'fas fa-spinner fa-spin' },
-      connected: { class: 'bg-success', text: 'Connected', icon: 'fas fa-check-circle' },
-      disconnected: { class: 'bg-danger', text: 'Disconnected', icon: 'fas fa-times-circle' },
-      error: { class: 'bg-danger', text: 'Connection Error', icon: 'fas fa-exclamation-triangle' }
-    };
-
-    const config = statusConfig[this.connectionStatus] || statusConfig.error;
     const statusElement = document.getElementById('connection-status');
+    if (!statusElement) return;
+
+    let statusClass, statusText, statusIcon;
     
-    if (statusElement) {
-      statusElement.className = `badge ${config.class} d-flex align-items-center gap-1`;
-      statusElement.innerHTML = `<i class="${config.icon}"></i> ${config.text}`;
+    switch (this.connectionStatus) {
+      case 'connected':
+        statusClass = 'text-success';
+        statusText = 'Connected';
+        statusIcon = 'fas fa-circle';
+        break;
+      case 'disconnected':
+        statusClass = 'text-warning';
+        statusText = 'Disconnected';
+        statusIcon = 'fas fa-circle';
+        break;
+      case 'error':
+        statusClass = 'text-danger';
+        statusText = 'Connection Error';
+        statusIcon = 'fas fa-exclamation-circle';
+        break;
+      default:
+        statusClass = 'text-muted';
+        statusText = 'Connecting...';
+        statusIcon = 'fas fa-spinner fa-spin';
     }
+
+    statusElement.className = statusClass;
+    statusElement.innerHTML = `<i class="${statusIcon} me-1"></i>${statusText}`;
   }
 
   renderApp() {
-    document.getElementById('root').innerHTML = `
+    const root = document.getElementById('root');
+    root.innerHTML = `
       <div class="App">
-        <!-- Header -->
-        <nav class="navbar navbar-dark bg-primary mb-4">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
           <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1 d-flex align-items-center">
+            <a class="navbar-brand" href="#">
               <i class="fas fa-shield-alt me-2"></i>
               SSL Certificate Manager
-            </span>
-            <div class="d-flex align-items-center gap-3">
-              <span id="connection-status" class="badge bg-warning">
-                <i class="fas fa-spinner fa-spin"></i> Connecting...
-              </span>
-              <span class="text-light small">
-                <i class="fas fa-clock me-1"></i>
-                <span id="current-time">${new Date().toLocaleString()}</span>
+            </a>
+            <div class="navbar-nav ms-auto">
+              <span class="navbar-text" id="connection-status">
+                <i class="fas fa-spinner fa-spin me-1"></i>Connecting...
               </span>
             </div>
           </div>
         </nav>
-
-        <!-- Notifications -->
-        <div class="container-fluid mb-3">
-          <div id="notifications" class="notification-container"></div>
+        
+        <div id="notification-container" class="notification-container"></div>
+        
+        <div class="container-fluid mt-4">
+          <div id="main-content"></div>
         </div>
-
-        <!-- Main Content -->
-        <div class="container-fluid">
-          <div id="main-content">
-            <div class="text-center py-5">
-              <div class="spinner-border text-primary mb-3" role="status">
-                <span class="visually-hidden">Loading...</span>
-              </div>
-              <h4 class="text-muted">Connecting to SSL Management Server...</h4>
-            </div>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <footer class="bg-light mt-5 py-3">
-          <div class="container-fluid text-center text-muted">
-            <small>
-              <i class="fas fa-lock me-1"></i>
-              SSL Certificate Manager - Manage your nginx domains and SSL certificates
-            </small>
-          </div>
-        </footer>
       </div>
     `;
-
-    // Update time every second
-    setInterval(() => {
-      const timeElement = document.getElementById('current-time');
-      if (timeElement) {
-        timeElement.textContent = new Date().toLocaleString();
-      }
-    }, 1000);
   }
 
   renderDashboard() {
@@ -520,142 +480,150 @@ class SSLManager {
     if (!mainContent) return;
     
     mainContent.innerHTML = `
-      <!-- Stats Overview -->
-      <div class="row mb-4">
-        <div class="col-md-3">
-          <div class="card bg-primary text-white">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h5 class="card-title">Total Domains</h5>
-                  <h2 class="mb-0" id="stat-total">0</h2>
-                </div>
-                <div class="align-self-center">
-                  <i class="fas fa-globe fa-2x"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card bg-success text-white">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h5 class="card-title">With SSL</h5>
-                  <h2 class="mb-0" id="stat-ssl">0</h2>
-                </div>
-                <div class="align-self-center">
-                  <i class="fas fa-shield-alt fa-2x"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card bg-warning text-white">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h5 class="card-title">Expiring Soon</h5>
-                  <h2 class="mb-0" id="stat-expiring">0</h2>
-                </div>
-                <div class="align-self-center">
-                  <i class="fas fa-exclamation-triangle fa-2x"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="card bg-danger text-white">
-            <div class="card-body">
-              <div class="d-flex justify-content-between">
-                <div>
-                  <h5 class="card-title">Expired</h5>
-                  <h2 class="mb-0" id="stat-expired">0</h2>
-                </div>
-                <div class="align-self-center">
-                  <i class="fas fa-times-circle fa-2x"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Content -->
       <div class="row">
-        <!-- Domain List -->
+        <!-- Statistics Cards -->
+        <div class="col-12 mb-4">
+          <div class="row">
+            <div class="col-md-3 mb-3">
+              <div class="card bg-primary text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Total Domains</h6>
+                      <h2 class="mb-0" id="stat-total">-</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-globe fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card bg-success text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">With SSL</h6>
+                      <h2 class="mb-0" id="stat-ssl">-</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-lock fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card bg-warning text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Expiring Soon</h6>
+                      <h2 class="mb-0" id="stat-expiring">-</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-clock fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card bg-danger text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Expired</h6>
+                      <h2 class="mb-0" id="stat-expired">-</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-exclamation-triangle fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Domain Management -->
         <div class="col-lg-8">
           <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-              <h5 class="mb-0">
-                <i class="fas fa-list me-2"></i>
-                Domains
-              </h5>
+              <h5 class="mb-0">Domain Management</h5>
               <div class="d-flex gap-2">
                 <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
-                  <i class="fas fa-sync-alt me-1"></i>
-                  Refresh
+                  <i class="fas fa-sync-alt me-1"></i> Refresh
                 </button>
-                <button class="btn btn-success btn-sm" onclick="sslManager.toggleAddDomainForm()">
-                  <i class="fas fa-plus me-1"></i>
-                  Add Domain
+                <button class="btn btn-primary btn-sm" onclick="sslManager.toggleAddDomainForm()">
+                  <i class="fas fa-plus me-1"></i> Add Domain
                 </button>
               </div>
             </div>
-            <div class="card-body p-0">
-              <!-- Add Domain Form -->
-              <div id="add-domain-form" class="border-bottom p-3" style="display: none;">
-                <h6 class="mb-3">
-                  <i class="fas fa-plus me-2"></i>
-                  Add New Domain
-                </h6>
-                <div class="row align-items-end">
-                  <div class="col-md-6">
-                    <label class="form-label">Domain Name:</label>
-                    <input type="text" class="form-control" id="new-domain-input" placeholder="example.com or subdomain.example.com" 
-                           onkeypress="if(event.key==='Enter') sslManager.addDomainFromForm()">
-                    <small class="text-muted">Enter domain without http:// or https://</small>
+            <div class="card-body">
+              <!-- Search and Filter Controls -->
+              <div class="row mb-3">
+                <div class="col-md-6">
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="fas fa-search"></i></span>
+                    <input type="text" class="form-control" id="search-input" placeholder="Search domains...">
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <select class="form-select" id="status-filter">
+                    <option value="all">All Statuses</option>
+                    <option value="ssl">With SSL</option>
+                    <option value="no-ssl">No SSL</option>
+                    <option value="expiring">Expiring Soon</option>
+                    <option value="expired">Expired</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <select class="form-select" id="sort-select">
+                    <option value="domain-asc">Domain A-Z</option>
+                    <option value="domain-desc">Domain Z-A</option>
+                    <option value="expiry-asc">Expiry Date (Earliest)</option>
+                    <option value="expiry-desc">Expiry Date (Latest)</option>
+                    <option value="status-desc">SSL Status</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Add Domain Form (Initially Hidden) -->
+              <div id="add-domain-form" class="alert alert-light border" style="display: none;">
+                <h6 class="alert-heading">Add New Domain</h6>
+                <div class="row">
+                  <div class="col-md-8">
+                    <input type="text" id="new-domain-input" class="form-control" placeholder="Enter domain (e.g., example.com)">
+                    <div id="domain-validation-message" class="form-text"></div>
                   </div>
                   <div class="col-md-4">
-                    <button class="btn btn-success" onclick="sslManager.addDomainFromForm()">
+                    <button class="btn btn-success me-2" onclick="sslManager.addDomainFromForm()">
                       <i class="fas fa-plus me-1"></i> Add Domain
                     </button>
-                    <button class="btn btn-outline-secondary ms-2" onclick="sslManager.toggleAddDomainForm()">
-                      Cancel
-                    </button>
-                  </div>
-                  <div class="col-md-2">
-                    <small class="text-muted">Document root: /var/www/html</small>
+                    <button class="btn btn-secondary" onclick="sslManager.toggleAddDomainForm()">Cancel</button>
                   </div>
                 </div>
-                <div id="domain-validation-message" class="mt-2" style="display: none;"></div>
               </div>
-              
+
+              <!-- Domain List Container -->
               <div id="domain-list-container">
-                <div class="text-center py-4">
-                  <div class="spinner-border text-primary" role="status"></div>
-                  <p class="mt-2 text-muted">Loading domains...</p>
-                </div>
+                <!-- Domain list will be rendered here -->
+              </div>
+
+              <!-- Pagination -->
+              <div id="pagination-container" class="mt-3">
+                <!-- Pagination will be rendered here -->
               </div>
             </div>
           </div>
         </div>
 
-        <!-- SSL Status & Actions -->
+        <!-- SSL Panel -->
         <div class="col-lg-4">
-          <div id="ssl-panel">
-            <div class="card">
-              <div class="card-body text-center py-5">
-                <i class="fas fa-mouse-pointer fa-3x text-muted mb-3"></i>
-                <h5 class="text-muted">Select a Domain</h5>
-                <p class="text-muted">
-                  Click on a domain from the list to view SSL status and perform actions.
-                </p>
-              </div>
-            </div>
+          <div id="ssl-panel-container">
+            <!-- SSL panel will be rendered here -->
           </div>
         </div>
       </div>
@@ -664,18 +632,14 @@ class SSLManager {
 
   renderLoading() {
     const container = document.getElementById('domain-list-container');
-    if (!container) {
-      console.warn('Domain list container not found, cannot show loading state');
-      return;
-    }
-    
-    // Only show loading spinner in the domain list container, not the entire main content
+    if (!container) return;
+
     container.innerHTML = `
       <div class="text-center py-5">
-        <div class="spinner-border text-primary mb-3" role="status">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
           <span class="visually-hidden">Loading...</span>
         </div>
-        <h4 class="text-muted">Loading domains...</h4>
+        <p class="mt-3 text-muted">Loading domains...</p>
       </div>
     `;
   }
@@ -684,260 +648,163 @@ class SSLManager {
     const element = document.getElementById(elementId);
     if (element) {
       element.innerHTML = content;
-      return true;
     }
-    return false;
   }
 
   safeSetText(elementId, text) {
     const element = document.getElementById(elementId);
     if (element) {
       element.textContent = text;
-      return true;
     }
-    return false;
   }
 
   renderDomainList() {
     const container = document.getElementById('domain-list-container');
     if (!container) return;
-    
-    // Force loading to false to prevent stuck loader
-    this.loading = false;
-    
-    if (this.domains.length === 0) {
-      container.innerHTML = `
-        <div class="text-center py-5">
-          <i class="fas fa-server fa-3x text-muted mb-3"></i>
-          <h5 class="text-muted">No Domains Found</h5>
-          <p class="text-muted">
-            No nginx server configurations found in /etc/nginx/sites-available/
-          </p>
-          <small class="text-muted">
-            Make sure nginx is properly configured and you have the necessary permissions.
-          </small>
-        </div>
-      `;
+
+    if (this.loading) {
+      this.renderLoading();
       return;
     }
 
-    // Render search and filter controls
-    const controlsHtml = `
-      <div class="p-3 border-bottom">
-        <div class="row g-3">
-          <div class="col-md-4">
-            <div class="input-group">
-              <span class="input-group-text"><i class="fas fa-search"></i></span>
-              <input type="text" class="form-control" placeholder="Search domains..." 
-                     value="${this.searchTerm}" 
-                     onkeyup="sslManager.setSearch(this.value)">
-            </div>
-          </div>
-          <div class="col-md-3">
-            <select class="form-select" onchange="sslManager.setStatusFilter(this.value)">
-              <option value="all" ${this.statusFilter === 'all' ? 'selected' : ''}>All Domains</option>
-              <option value="ssl" ${this.statusFilter === 'ssl' ? 'selected' : ''}>With SSL</option>
-              <option value="no-ssl" ${this.statusFilter === 'no-ssl' ? 'selected' : ''}>No SSL</option>
-              <option value="expiring" ${this.statusFilter === 'expiring' ? 'selected' : ''}>Expiring Soon</option>
-              <option value="expired" ${this.statusFilter === 'expired' ? 'selected' : ''}>Expired</option>
-            </select>
-          </div>
-          <div class="col-md-3">
-            <select class="form-select" onchange="sslManager.setSorting(this.value, '${this.sortOrder}')">
-              <option value="domain" ${this.sortBy === 'domain' ? 'selected' : ''}>Sort by Domain</option>
-              <option value="expiry" ${this.sortBy === 'expiry' ? 'selected' : ''}>Sort by Expiry</option>
-              <option value="status" ${this.sortBy === 'status' ? 'selected' : ''}>Sort by Status</option>
-            </select>
-          </div>
-          <div class="col-md-2">
-            <button class="btn btn-outline-secondary" onclick="sslManager.setSorting('${this.sortBy}', '${this.sortOrder === 'asc' ? 'desc' : 'asc'}')">
-              <i class="fas fa-sort-${this.sortOrder === 'asc' ? 'up' : 'down'}"></i>
-              ${this.sortOrder === 'asc' ? 'Asc' : 'Desc'}
-            </button>
-          </div>
-        </div>
-        <div class="mt-2">
-          <small class="text-muted" id="filtered-stats">
-            Showing ${this.filteredDomains.length} of ${this.domains.length} domains
-          </small>
-        </div>
-      </div>
-    `;
-
     const currentPageDomains = this.getCurrentPageDomains();
-    const tableRows = currentPageDomains.map(domain => {
-      const ssl = domain.ssl;
-      const sslBadge = this.getSSLStatusBadge(ssl);
-      const sslIcon = this.getSSLIcon(ssl);
-      const expiryDate = this.formatExpiryDate(ssl);
-      const daysLeft = this.getDaysUntilExpiry(ssl);
-      const hasSSL = ssl?.hasSSL;
-      
-      return `
-        <tr class="cursor-pointer" data-domain="${domain.domain}" onclick="sslManager.selectDomain(${JSON.stringify(domain).replace(/"/g, '&quot;')})">
-          <td>
-            <div class="d-flex align-items-center">
-              ${sslIcon}
-              <div class="ms-2">
-                <div class="fw-medium">${domain.domain}</div>
-                ${domain.serverNames && domain.serverNames.length > 1 ? 
-                  `<small class="text-muted">+${domain.serverNames.length - 1} more</small>` : ''}
-              </div>
-            </div>
-          </td>
-          <td>
-            ${sslBadge}
-            ${ssl?.issuerOrg ? `<small class="d-block text-muted mt-1">${ssl.issuerOrg}</small>` : ''}
-          </td>
-          <td>
-            <span class="${ssl?.isExpired ? 'text-danger' : ssl?.isExpiringSoon ? 'text-warning' : ''}">${expiryDate}</span>
-          </td>
-          <td>
-            <span class="${ssl?.isExpired ? 'text-danger fw-bold' : ssl?.isExpiringSoon ? 'text-warning fw-bold' : ''}">${daysLeft}</span>
-          </td>
-          <td>
-            ${domain.enabled ? 
-              '<span class="badge bg-success"><i class="fas fa-check"></i> Enabled</span>' : 
-              '<span class="badge bg-secondary"><i class="fas fa-times"></i> Disabled</span>'}
-          </td>
-          <td>
-            <div class="btn-group btn-group-sm" role="group">
-              ${!hasSSL ? `
-                <button class="btn btn-success" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')" title="Install SSL Certificate">
-                  <i class="fas fa-plus"></i> Install SSL
-                </button>
-              ` : `
-                <button class="btn btn-primary" onclick="event.stopPropagation(); sslManager.renewSSL('${domain.domain}')" title="Renew SSL Certificate">
-                  <i class="fas fa-sync-alt"></i> Renew
-                </button>
-              `}
-              <button class="btn btn-outline-secondary" onclick="event.stopPropagation(); sslManager.selectDomain(${JSON.stringify(domain).replace(/"/g, '&quot;')})" title="View Details">
-                <i class="fas fa-eye"></i>
-              </button>
-            </div>
-          </td>
-        </tr>
-        ${!hasSSL ? `
-        <tr id="install-form-${domain.domain}" class="install-form-row" style="display: none;">
-          <td colspan="6" class="p-3 bg-light">
-            <div class="row align-items-end">
-              <div class="col-md-6">
-                <label class="form-label">Email for Let's Encrypt:</label>
-                <input type="email" class="form-control" id="email-${domain.domain}" placeholder="admin@example.com" required>
-              </div>
-              <div class="col-md-4">
-                <button class="btn btn-success" onclick="sslManager.installSSLFromForm('${domain.domain}')">
-                  <i class="fas fa-download me-1"></i> Install Certificate
-                </button>
-                <button class="btn btn-outline-secondary ms-2" onclick="sslManager.toggleInstallForm('${domain.domain}')">
-                  Cancel
-                </button>
-              </div>
-              <div class="col-md-2">
-                <small class="text-muted">Required for certificate registration and renewal notifications.</small>
-              </div>
-            </div>
-          </td>
-        </tr>
-        ` : ''}
+
+    if (currentPageDomains.length === 0) {
+      container.innerHTML = `
+        <div class="text-center py-5">
+          <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+          <h5 class="text-muted">No domains found</h5>
+          <p class="text-muted">Add your first domain to get started</p>
+        </div>
       `;
-    }).join('');
+      this.renderPagination();
+      return;
+    }
 
-    // Render pagination controls
-    const paginationHtml = this.renderPagination();
-
-    container.innerHTML = `
-      ${controlsHtml}
+    const tableHTML = `
       <div class="table-responsive">
-        <table class="table table-hover mb-0" id="domain-table">
+        <table class="table table-hover">
           <thead class="table-light">
             <tr>
               <th>Domain</th>
               <th>SSL Status</th>
-              <th>Expires</th>
-              <th>Days Left</th>
-              <th>Enabled</th>
+              <th>Expiry</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${tableRows}
+            ${currentPageDomains.map(domain => `
+              <tr class="${this.selectedDomain?.domain === domain.domain ? 'table-active' : ''}" 
+                  onclick="sslManager.selectDomain(${JSON.stringify(domain).replace(/"/g, '&quot;')})">
+                <td>
+                  <div>
+                    <strong>${domain.domain}</strong>
+                    ${domain.serverNames && domain.serverNames.length > 1 ? 
+                      `<br><small class="text-muted">+${domain.serverNames.length - 1} aliases</small>` : ''}
+                  </div>
+                </td>
+                <td>${this.renderSSLStatus(domain)}</td>
+                <td>${this.formatExpiryDate(domain.ssl)}</td>
+                <td>
+                  ${this.renderCertificateActions(domain)}
+                </td>
+              </tr>
+            `).join('')}
           </tbody>
         </table>
       </div>
-      ${paginationHtml}
     `;
+
+    container.innerHTML = tableHTML;
+    this.renderPagination();
   }
 
   renderPagination() {
-    if (this.totalPages <= 1) return '';
+    const container = document.getElementById('pagination-container');
+    if (!container) return;
 
-    const pages = [];
+    if (this.totalPages <= 1) {
+      container.innerHTML = '';
+      return;
+    }
+
     const maxVisiblePages = 5;
-    
     let startPage = Math.max(1, this.currentPage - Math.floor(maxVisiblePages / 2));
     let endPage = Math.min(this.totalPages, startPage + maxVisiblePages - 1);
-    
+
     if (endPage - startPage + 1 < maxVisiblePages) {
       startPage = Math.max(1, endPage - maxVisiblePages + 1);
     }
 
-    for (let i = startPage; i <= endPage; i++) {
-      pages.push(i);
+    let paginationHTML = `
+      <nav aria-label="Domain pagination">
+        <ul class="pagination justify-content-center">
+          <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="event.preventDefault(); sslManager.setPage(${this.currentPage - 1})">
+              <i class="fas fa-chevron-left"></i>
+            </a>
+          </li>
+    `;
+
+    if (startPage > 1) {
+      paginationHTML += `
+        <li class="page-item">
+          <a class="page-link" href="#" onclick="event.preventDefault(); sslManager.setPage(1)">1</a>
+        </li>
+      `;
+      if (startPage > 2) {
+        paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+      }
     }
 
-    const pageButtons = pages.map(page => `
-      <button class="btn btn-sm ${page === this.currentPage ? 'btn-primary' : 'btn-outline-primary'}" 
-              onclick="sslManager.setPage(${page})">${page}</button>
-    `).join('');
+    for (let page = startPage; page <= endPage; page++) {
+      paginationHTML += `
+        <li class="page-item ${page === this.currentPage ? 'active' : ''}">
+          <a class="page-link" href="#" onclick="event.preventDefault(); sslManager.setPage(${page})">${page}</a>
+        </li>
+      `;
+    }
 
-    return `
-      <div class="p-3 border-top">
-        <div class="d-flex justify-content-between align-items-center">
-          <div class="text-muted">
-            Page ${this.currentPage} of ${this.totalPages} 
-            (${((this.currentPage - 1) * this.itemsPerPage) + 1}-${Math.min(this.currentPage * this.itemsPerPage, this.filteredDomains.length)} of ${this.filteredDomains.length})
-          </div>
-          <div class="btn-group" role="group">
-            <button class="btn btn-sm btn-outline-primary" 
-                    onclick="sslManager.setPage(1)" 
-                    ${this.currentPage === 1 ? 'disabled' : ''}>
-              <i class="fas fa-angle-double-left"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-primary" 
-                    onclick="sslManager.setPage(${this.currentPage - 1})" 
-                    ${this.currentPage === 1 ? 'disabled' : ''}>
-              <i class="fas fa-angle-left"></i>
-            </button>
-            ${pageButtons}
-            <button class="btn btn-sm btn-outline-primary" 
-                    onclick="sslManager.setPage(${this.currentPage + 1})" 
-                    ${this.currentPage === this.totalPages ? 'disabled' : ''}>
-              <i class="fas fa-angle-right"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-primary" 
-                    onclick="sslManager.setPage(${this.totalPages})" 
-                    ${this.currentPage === this.totalPages ? 'disabled' : ''}>
-              <i class="fas fa-angle-double-right"></i>
-            </button>
-          </div>
-        </div>
+    if (endPage < this.totalPages) {
+      if (endPage < this.totalPages - 1) {
+        paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+      }
+      paginationHTML += `
+        <li class="page-item">
+          <a class="page-link" href="#" onclick="event.preventDefault(); sslManager.setPage(${this.totalPages})">${this.totalPages}</a>
+        </li>
+      `;
+    }
+
+    paginationHTML += `
+          <li class="page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="event.preventDefault(); sslManager.setPage(${this.currentPage + 1})">
+              <i class="fas fa-chevron-right"></i>
+            </a>
+          </li>
+        </ul>
+      </nav>
+      <div class="text-center text-muted">
+        Showing ${((this.currentPage - 1) * this.itemsPerPage) + 1} to ${Math.min(this.currentPage * this.itemsPerPage, this.filteredDomains.length)} of ${this.filteredDomains.length} domains
       </div>
     `;
+
+    container.innerHTML = paginationHTML;
   }
 
   renderSSLPanel() {
-    const panel = document.getElementById('ssl-panel');
-    
+    const container = document.getElementById('ssl-panel-container');
+    if (!container) return;
+
     if (!this.selectedDomain) {
-      panel.innerHTML = `
+      container.innerHTML = `
         <div class="card">
-          <div class="card-body text-center py-5">
+          <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>SSL Certificate Details</h6>
+          </div>
+          <div class="card-body text-center">
             <i class="fas fa-mouse-pointer fa-3x text-muted mb-3"></i>
-            <h5 class="text-muted">Select a Domain</h5>
-            <p class="text-muted">
-              Click on a domain from the list to view SSL status and perform actions.
-            </p>
+            <p class="text-muted">Select a domain to view SSL certificate details</p>
           </div>
         </div>
       `;
@@ -946,445 +813,467 @@ class SSLManager {
 
     const domain = this.selectedDomain;
     const ssl = domain.ssl;
-    const hasSSL = ssl?.hasSSL;
 
-    panel.innerHTML = `
-      ${this.renderSSLStatus(domain)}
-      ${this.renderCertificateActions(domain)}
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h6 class="mb-0"><i class="fas fa-shield-alt me-2"></i>SSL Certificate Details</h6>
+        </div>
+        <div class="card-body">
+          <h6 class="border-bottom pb-2 mb-3">${domain.domain}</h6>
+          
+          <div class="mb-3">
+            <label class="form-label fw-bold">Status</label>
+            <div>${this.renderSSLStatus(domain)}</div>
+          </div>
+
+          ${ssl?.hasSSL ? `
+            <div class="mb-3">
+              <label class="form-label fw-bold">Certificate Information</label>
+              <div class="small">
+                <div class="row mb-1">
+                  <div class="col-4 text-muted">Issuer:</div>
+                  <div class="col-8">${ssl.issuer || 'Let\'s Encrypt'}</div>
+                </div>
+                <div class="row mb-1">
+                  <div class="col-4 text-muted">Valid From:</div>
+                  <div class="col-8">${new Date(ssl.validFrom || ssl.expiryDate).toLocaleDateString()}</div>
+                </div>
+                <div class="row mb-1">
+                  <div class="col-4 text-muted">Expires:</div>
+                  <div class="col-8">${new Date(ssl.expiryDate).toLocaleDateString()}</div>
+                </div>
+                <div class="row mb-1">
+                  <div class="col-4 text-muted">Days Remaining:</div>
+                  <div class="col-8">
+                    <span class="badge ${this.getDaysUntilExpiry(ssl) <= 30 ? 'bg-warning' : 'bg-success'}">
+                      ${this.getDaysUntilExpiry(ssl)} days
+                    </span>
+                  </div>
+                </div>
+                ${ssl.certificatePath ? `
+                  <div class="row mb-1">
+                    <div class="col-4 text-muted">Path:</div>
+                    <div class="col-8 font-monospace">${ssl.certificatePath}</div>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="mb-3">
+            <label class="form-label fw-bold">Actions</label>
+            <div class="d-grid gap-2">
+              ${!ssl?.hasSSL ? `
+                <button class="btn btn-success" onclick="sslManager.toggleInstallForm('${domain.domain}')">
+                  <i class="fas fa-plus me-1"></i> Install SSL Certificate
+                </button>
+              ` : `
+                <button class="btn btn-warning" onclick="sslManager.renewSSL('${domain.domain}')">
+                  <i class="fas fa-sync-alt me-1"></i> Renew Certificate
+                </button>
+              `}
+            </div>
+          </div>
+
+          <!-- SSL Installation Form (Initially Hidden) -->
+          <div id="ssl-install-form-${domain.domain}" class="alert alert-light border" style="display: none;">
+            <h6 class="alert-heading">Install SSL Certificate</h6>
+            <div class="mb-3">
+              <label for="ssl-email-${domain.domain}" class="form-label">Email Address</label>
+              <input type="email" id="ssl-email-${domain.domain}" class="form-control" placeholder="your@email.com" required>
+              <div class="form-text">Required for Let's Encrypt certificate registration</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-success" onclick="sslManager.installSSLFromForm('${domain.domain}')">
+                <i class="fas fa-shield-alt me-1"></i> Install Certificate
+              </button>
+              <button class="btn btn-secondary" onclick="sslManager.toggleInstallForm('${domain.domain}')">Cancel</button>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label fw-bold">Domain Configuration</label>
+            <div class="small">
+              <div class="row mb-1">
+                <div class="col-4 text-muted">Config File:</div>
+                <div class="col-8 font-monospace">${domain.filename}</div>
+              </div>
+              <div class="row mb-1">
+                <div class="col-4 text-muted">Document Root:</div>
+                <div class="col-8 font-monospace">${domain.documentRoot || '/var/www/html'}</div>
+              </div>
+              <div class="row mb-1">
+                <div class="col-4 text-muted">Status:</div>
+                <div class="col-8">
+                  <span class="badge ${domain.enabled ? 'bg-success' : 'bg-secondary'}">
+                    ${domain.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+              </div>
+              <div class="row mb-1">
+                <div class="col-4 text-muted">Ports:</div>
+                <div class="col-8">${domain.ports ? domain.ports.join(', ') : '80'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
   }
 
   renderSSLStatus(domain) {
     const ssl = domain.ssl;
-    const statusColor = !ssl || !ssl.hasSSL ? 'text-muted' : 
-                      ssl.isExpired ? 'text-danger' : 
-                      ssl.isExpiringSoon ? 'text-warning' : 'text-success';
-    const statusIcon = !ssl || !ssl.hasSSL ? 'fas fa-unlock' : 
-                      ssl.isExpired ? 'fas fa-times-circle' : 
-                      ssl.isExpiringSoon ? 'fas fa-exclamation-triangle' : 'fas fa-shield-alt';
+    if (!ssl) {
+      return '<span class="badge bg-secondary">Unknown</span>';
+    }
 
-    return `
-      <div class="card mb-3">
-        <div class="card-header">
-          <h6 class="mb-0">
-            <i class="fas fa-certificate me-2"></i>
-            SSL Certificate Status
-          </h6>
-        </div>
-        <div class="card-body">
-          <div class="d-flex align-items-center mb-3">
-            <i class="${statusIcon} fa-2x ${statusColor} me-3"></i>
-            <div>
-              <h5 class="mb-1">${domain.domain}</h5>
-              <p class="mb-0 text-muted">${domain.filename}</p>
-            </div>
-          </div>
-
-          ${ssl?.error ? `
-            <div class="alert alert-danger" role="alert">
-              <i class="fas fa-exclamation-triangle me-2"></i>
-              <strong>Error:</strong> ${ssl.error}
-            </div>
-          ` : ssl?.hasSSL ? `
-            <div class="row g-2 mb-3">
-              <div class="col-sm-6">
-                <div class="card bg-light">
-                  <div class="card-body p-3">
-                    <h6 class="card-title mb-2">
-                      <i class="fas fa-calendar-alt me-1"></i>
-                      Expires In
-                    </h6>
-                    <p class="card-text mb-0 ${ssl.isExpired ? 'text-danger fw-bold' : ssl.isExpiringSoon ? 'text-warning fw-bold' : 'text-success'}">
-                      ${ssl.daysUntilExpiry !== undefined ? (ssl.daysUntilExpiry <= 0 ? 'Expired' : `${ssl.daysUntilExpiry} days`) : 'Unknown'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div class="col-sm-6">
-                <div class="card bg-light">
-                  <div class="card-body p-3">
-                    <h6 class="card-title mb-2">
-                      <i class="fas fa-building me-1"></i>
-                      Issuer
-                    </h6>
-                    <p class="card-text mb-0 small">
-                      ${ssl.issuerOrg || 'Unknown'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            ${ssl.isExpired ? `
-              <div class="alert alert-danger" role="alert">
-                <i class="fas fa-times-circle me-2"></i>
-                <strong>Certificate Expired!</strong> This certificate has expired and needs immediate renewal.
-              </div>
-            ` : ssl.isExpiringSoon ? `
-              <div class="alert alert-warning" role="alert">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong>Certificate Expiring Soon!</strong> This certificate will expire in ${ssl.daysUntilExpiry} days.
-              </div>
-            ` : `
-              <div class="alert alert-success" role="alert">
-                <i class="fas fa-check-circle me-2"></i>
-                <strong>Certificate Valid!</strong> This certificate is valid and up to date.
-              </div>
-            `}
-          ` : `
-            <div class="alert alert-warning" role="alert">
-              <i class="fas fa-unlock me-2"></i>
-              <strong>No SSL Certificate</strong>
-              <p class="mb-0 mt-2">
-                This domain does not have an SSL certificate configured. 
-                You can install one using the actions panel.
-              </p>
-            </div>
-          `}
-        </div>
-      </div>
-    `;
+    return this.getSSLStatusBadge(ssl);
   }
 
   renderCertificateActions(domain) {
     const ssl = domain.ssl;
-    const hasSSL = ssl?.hasSSL;
-
-    return `
-      <div class="card">
-        <div class="card-header">
-          <h6 class="mb-0">
-            <i class="fas fa-tools me-2"></i>
-            Certificate Actions
-          </h6>
-        </div>
-        <div class="card-body">
-          ${!hasSSL ? `
-            <div class="mb-3">
-              <h6 class="text-muted mb-2">Install SSL Certificate</h6>
-              <button class="btn btn-success w-100" onclick="sslManager.showInstallForm('${domain.domain}')">
-                <i class="fas fa-plus me-2"></i>
-                Install SSL Certificate
-              </button>
-            </div>
-          ` : `
-            <div class="mb-3">
-              <h6 class="text-muted mb-2">Manage Certificate</h6>
-              <div class="d-grid">
-                <button class="btn btn-primary" onclick="sslManager.renewSSL('${domain.domain}')">
-                  <i class="fas fa-sync-alt me-2"></i>
-                  Renew Certificate
-                </button>
-              </div>
-            </div>
-          `}
-
-          <hr>
-
-          <div class="mb-3">
-            <h6 class="text-muted mb-2">Bulk Actions</h6>
-            <div class="d-grid">
-              <button class="btn btn-outline-primary" onclick="sslManager.renewAllSSL()">
-                <i class="fas fa-sync me-2"></i>
-                Renew All Certificates
-              </button>
-            </div>
-            <div class="form-text mt-2">
-              This will attempt to renew all SSL certificates on the system.
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    
+    if (!ssl?.hasSSL) {
+      return `
+        <button class="btn btn-success btn-sm" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')">
+          <i class="fas fa-plus me-1"></i> Install SSL
+        </button>
+      `;
+    } else {
+      return `
+        <button class="btn btn-warning btn-sm" onclick="event.stopPropagation(); sslManager.renewSSL('${domain.domain}')">
+          <i class="fas fa-sync-alt me-1"></i> Renew
+        </button>
+      `;
+    }
   }
 
   toggleInstallForm(domain) {
-    const formRow = document.getElementById(`install-form-${domain}`);
-    if (formRow) {
-      const isVisible = formRow.style.display !== 'none';
-      formRow.style.display = isVisible ? 'none' : 'table-row';
-      
-      // Clear any previous email input
-      if (!isVisible) {
-        const emailInput = document.getElementById(`email-${domain}`);
-        if (emailInput) emailInput.value = '';
-      }
-    }
-  }
-
-  async installSSLFromForm(domain) {
-    const emailInput = document.getElementById(`email-${domain}`);
-    if (!emailInput) return;
-    
-    const email = emailInput.value.trim();
-    if (!email) {
-      this.addNotification('error', 'Email address is required', true);
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      this.addNotification('error', 'Please enter a valid email address', true);
-      return;
-    }
-
-    try {
-      await this.installSSL(domain, email);
-      this.toggleInstallForm(domain); // Hide the form after successful installation
-      this.addNotification('success', `SSL installation started for ${domain}`, true);
-    } catch (error) {
-      this.addNotification('error', `Failed to install SSL: ${error.message}`, true);
-    }
-  }
-
-  toggleAddDomainForm() {
-    const form = document.getElementById('add-domain-form');
-    const input = document.getElementById('new-domain-input');
-    const validationMessage = document.getElementById('domain-validation-message');
-    
+    const form = document.getElementById(`ssl-install-form-${domain}`);
     if (form) {
       const isVisible = form.style.display !== 'none';
       form.style.display = isVisible ? 'none' : 'block';
       
       if (!isVisible) {
-        // Clear form when showing
-        if (input) input.value = '';
-        if (validationMessage) validationMessage.style.display = 'none';
-        // Focus on input when form is shown
-        setTimeout(() => input?.focus(), 100);
+        const emailInput = document.getElementById(`ssl-email-${domain}`);
+        if (emailInput) {
+          emailInput.focus();
+        }
+      }
+    }
+  }
+
+  async installSSLFromForm(domain) {
+    const emailInput = document.getElementById(`ssl-email-${domain}`);
+    if (!emailInput) return;
+
+    const email = emailInput.value.trim();
+    if (!email) {
+      this.addNotification('error', 'Email address is required', true);
+      emailInput.focus();
+      return;
+    }
+
+    if (!email.includes('@') || !email.includes('.')) {
+      this.addNotification('error', 'Please enter a valid email address', true);
+      emailInput.focus();
+      return;
+    }
+
+    this.toggleInstallForm(domain);
+    await this.installSSL(domain, email);
+  }
+
+  toggleAddDomainForm() {
+    const form = document.getElementById('add-domain-form');
+    if (form) {
+      const isVisible = form.style.display !== 'none';
+      form.style.display = isVisible ? 'none' : 'block';
+      
+      if (!isVisible) {
+        const domainInput = document.getElementById('new-domain-input');
+        if (domainInput) {
+          domainInput.focus();
+        }
+      } else {
+        // Clear form when hiding
+        const domainInput = document.getElementById('new-domain-input');
+        const validationMessage = document.getElementById('domain-validation-message');
+        if (domainInput) domainInput.value = '';
+        if (validationMessage) validationMessage.textContent = '';
       }
     }
   }
 
   validateDomain(domain) {
-    // Client-side domain validation - no server call needed
-    console.log('Validating domain:', domain);
-    
+    if (!domain || typeof domain !== 'string') {
+      return { valid: false, error: 'Domain must be a valid string' };
+    }
+
     // Remove protocol if present
     domain = domain.replace(/^https?:\/\//, '');
     
-    // Basic domain validation regex
-    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+    // Remove trailing slash
+    domain = domain.replace(/\/$/, '');
+    
+    // Check for valid domain format
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
     
     if (!domainRegex.test(domain)) {
       return { valid: false, error: 'Invalid domain format' };
     }
-    
+
+    // Check length
     if (domain.length > 253) {
       return { valid: false, error: 'Domain name too long' };
     }
-    
-    const parts = domain.split('.');
-    if (parts.length < 2 || parts[parts.length - 1].length < 2) {
-      return { valid: false, error: 'Invalid top-level domain' };
+
+    // Check for minimum valid domain (must have at least one dot)
+    if (!domain.includes('.')) {
+      return { valid: false, error: 'Domain must include at least one dot (e.g., example.com)' };
     }
-    
-    console.log('Domain validation passed:', domain);
-    return { valid: true };
+
+    return { valid: true, domain: domain };
   }
 
   async addDomainFromForm() {
-    const input = document.getElementById('new-domain-input');
+    const domainInput = document.getElementById('new-domain-input');
     const validationMessage = document.getElementById('domain-validation-message');
     
-    if (!input) return;
+    if (!domainInput || !validationMessage) return;
+
+    const domain = domainInput.value.trim();
     
-    const domain = input.value.trim();
+    // Clear previous validation message
+    validationMessage.textContent = '';
+    validationMessage.className = 'form-text';
+
     if (!domain) {
-      this.showValidationMessage('Domain name is required', 'error');
+      this.showValidationMessage('Domain is required', 'error');
+      domainInput.focus();
       return;
     }
 
-    // Show validation in progress
-    this.showValidationMessage('Validating domain...', 'info');
+    // Validate domain format
+    const validation = this.validateDomain(domain);
+    if (!validation.valid) {
+      this.showValidationMessage(validation.error, 'error');
+      domainInput.focus();
+      return;
+    }
+
+    // Check if domain already exists
+    const existingDomain = this.domains.find(d => d.domain === validation.domain);
+    if (existingDomain) {
+      this.showValidationMessage('Domain already exists', 'error');
+      domainInput.focus();
+      return;
+    }
 
     try {
-      // Validate domain format (client-side)
-      const validation = this.validateDomain(domain);
-      if (!validation.valid) {
-        this.showValidationMessage(validation.error, 'error');
-        return;
-      }
-
-      // Domain is valid, proceed with nginx configuration creation
-      this.showValidationMessage('Domain valid, creating nginx configuration...', 'success');
+      this.addNotification('info', `Adding domain ${validation.domain}...`, false);
       
-      try {
-        const response = await this.api('POST', '/domains/add', { domain });
+      const response = await this.api('POST', '/domains/add', { domain: validation.domain });
+      
+      if (response.success) {
+        this.addNotification('success', `Domain ${validation.domain} added successfully`, true);
         
-        if (response.success) {
-          this.addNotification('success', `Domain ${domain} added successfully with nginx configuration`, true);
-          this.addNotification('success', `✓ Configuration file created and enabled`, true);
-          this.addNotification('success', `✓ Nginx tested and reloaded automatically`, true);
-          this.toggleAddDomainForm(); // Hide form
-          input.value = ''; // Clear input
-          
-          // Refresh domain list to show the new domain
-          await this.loadDomains();
-        } else {
-          this.showValidationMessage(response.error || 'Failed to create nginx configuration', 'error');
-        }
-      } catch (addError) {
-        console.error('Error adding domain to nginx:', addError);
-        this.showValidationMessage(`Failed to create nginx configuration: ${addError.response?.data?.message || addError.message}`, 'error');
+        // Clear form and hide it
+        domainInput.value = '';
+        this.toggleAddDomainForm();
+        
+        // Refresh domain list
+        await this.loadDomains();
+      } else {
+        this.addNotification('error', `Failed to add domain: ${response.error}`, true);
       }
     } catch (error) {
-      this.showValidationMessage(error.response?.data?.error || error.message, 'error');
+      console.error('Domain addition error:', error);
+      this.addNotification('error', `Domain addition failed: ${error.message}`, true);
     }
   }
 
   showValidationMessage(message, type) {
     const validationMessage = document.getElementById('domain-validation-message');
-    if (!validationMessage) return;
-    
-    const alertClass = type === 'error' ? 'alert-danger' : 
-                     type === 'success' ? 'alert-success' : 'alert-info';
-    
-    validationMessage.innerHTML = `
-      <div class="alert ${alertClass} alert-dismissible fade show mb-0" role="alert">
-        ${message}
-      </div>
-    `;
-    validationMessage.style.display = 'block';
-    
-    // Auto-hide non-error messages after 3 seconds
-    if (type !== 'error') {
-      setTimeout(() => {
-        validationMessage.style.display = 'none';
-      }, 3000);
+    if (validationMessage) {
+      validationMessage.textContent = message;
+      validationMessage.className = `form-text ${type === 'error' ? 'text-danger' : 'text-success'}`;
     }
   }
 
   renderNotifications() {
-    const container = document.getElementById('notifications');
+    const container = document.getElementById('notification-container');
     if (!container) return;
-    
+
     container.innerHTML = this.notifications.map(notification => `
-      <div class="alert alert-${notification.type === 'error' ? 'danger' : notification.type} alert-dismissible fade show" role="alert">
-        <div class="d-flex align-items-start">
-          <div class="flex-grow-1">
-            <strong>
-              ${notification.type === 'success' ? '<i class="fas fa-check-circle me-1"></i>' : ''}
-              ${notification.type === 'error' ? '<i class="fas fa-exclamation-triangle me-1"></i>' : ''}
-              ${notification.type === 'info' ? '<i class="fas fa-info-circle me-1"></i>' : ''}
-            </strong>
-            ${notification.message}
-            <small class="d-block text-muted mt-1">
-              ${notification.timestamp.toLocaleTimeString()}
-            </small>
-          </div>
-          <button type="button" class="btn-close" onclick="sslManager.removeNotification(${notification.id})" aria-label="Close"></button>
+      <div class="alert alert-${this.getNotificationClass(notification.type)} alert-dismissible fade show" role="alert">
+        <div class="d-flex align-items-center">
+          <i class="${this.getNotificationIcon(notification.type)} me-2"></i>
+          <div class="flex-grow-1">${notification.message}</div>
+          <button type="button" class="btn-close" onclick="sslManager.removeNotification(${notification.id})"></button>
         </div>
       </div>
     `).join('');
   }
 
+  getNotificationClass(type) {
+    const classes = {
+      success: 'success',
+      error: 'danger',
+      warning: 'warning',
+      info: 'info'
+    };
+    return classes[type] || 'info';
+  }
+
+  getNotificationIcon(type) {
+    const icons = {
+      success: 'fas fa-check-circle',
+      error: 'fas fa-exclamation-circle',
+      warning: 'fas fa-exclamation-triangle',
+      info: 'fas fa-info-circle'
+    };
+    return icons[type] || 'fas fa-info-circle';
+  }
+
   bindEvents() {
-    // Connection status updates
-    setTimeout(() => {
-      if (this.connectionStatus === 'connected') {
-        this.renderDashboard();
-      }
-    }, 1000);
+    // Search input
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.setSearch(e.target.value);
+      });
+    }
+
+    // Status filter
+    const statusFilter = document.getElementById('status-filter');
+    if (statusFilter) {
+      statusFilter.addEventListener('change', (e) => {
+        this.setStatusFilter(e.target.value);
+      });
+    }
+
+    // Sort select
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', (e) => {
+        const [sortBy, sortOrder] = e.target.value.split('-');
+        this.setSorting(sortBy, sortOrder);
+      });
+    }
+
+    // Domain input validation
+    const newDomainInput = document.getElementById('new-domain-input');
+    if (newDomainInput) {
+      newDomainInput.addEventListener('input', (e) => {
+        const domain = e.target.value.trim();
+        const validationMessage = document.getElementById('domain-validation-message');
+        
+        if (!validationMessage) return;
+        
+        if (!domain) {
+          validationMessage.textContent = '';
+          return;
+        }
+
+        const validation = this.validateDomain(domain);
+        if (validation.valid) {
+          validationMessage.textContent = `✓ Valid domain: ${validation.domain}`;
+          validationMessage.className = 'form-text text-success';
+        } else {
+          validationMessage.textContent = validation.error;
+          validationMessage.className = 'form-text text-danger';
+        }
+      });
+
+      newDomainInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.addDomainFromForm();
+        }
+      });
+    }
   }
 
   getSSLStatusBadge(ssl) {
-    if (!ssl) return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>Unknown</span>';
-    
-    // Handle different SSL status formats from production server
-    if (ssl.status === 'error') return '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error</span>';
-    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found') {
-      return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>No SSL</span>';
+    if (!ssl) {
+      return '<span class="badge bg-secondary">Unknown</span>';
     }
-    
-    // Check if SSL is active
-    if (ssl.status === 'active' && ssl.hasSSL) {
-      if (ssl.isExpired) return '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Expired</span>';
-      if (ssl.isExpiringSoon) return '<span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Expiring Soon</span>';
-      return '<span class="badge bg-success"><i class="fas fa-shield-alt me-1"></i>Active SSL</span>';
+
+    if (!ssl.hasSSL) {
+      return '<span class="badge bg-danger">No SSL</span>';
     }
-    
-    if (!ssl.hasSSL) return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>No SSL</span>';
-    return '<span class="badge bg-secondary"><i class="fas fa-question me-1"></i>Unknown</span>';
+
+    if (ssl.isExpired) {
+      return '<span class="badge bg-danger">Expired</span>';
+    }
+
+    if (ssl.isExpiringSoon) {
+      return '<span class="badge bg-warning">Expiring Soon</span>';
+    }
+
+    return '<span class="badge bg-success">Active SSL</span>';
   }
 
   getSSLIcon(ssl) {
-    if (!ssl) return '<i class="fas fa-unlock text-muted"></i>';
-    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
-      return '<i class="fas fa-unlock text-muted"></i>';
+    if (!ssl || !ssl.hasSSL) {
+      return 'fas fa-unlock text-danger';
     }
-    if (ssl.status === 'active' && ssl.hasSSL) {
-      if (ssl.isExpired) return '<i class="fas fa-times-circle text-danger"></i>';
-      if (ssl.isExpiringSoon) return '<i class="fas fa-exclamation-triangle text-warning"></i>';
-      return '<i class="fas fa-shield-alt text-success"></i>';
+
+    if (ssl.isExpired) {
+      return 'fas fa-exclamation-triangle text-danger';
     }
-    return '<i class="fas fa-unlock text-muted"></i>';
+
+    if (ssl.isExpiringSoon) {
+      return 'fas fa-clock text-warning';
+    }
+
+    return 'fas fa-lock text-success';
   }
 
   formatExpiryDate(ssl) {
-    if (!ssl) return 'N/A';
-    
-    // Check if SSL is not active
-    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
-      return 'N/A';
+    if (!ssl || !ssl.hasSSL || !ssl.expiryDate) {
+      return '<span class="text-muted">-</span>';
     }
+
+    const expiryDate = new Date(ssl.expiryDate);
+    const daysRemaining = this.getDaysUntilExpiry(ssl);
     
-    // Only show expiry date for active SSL certificates
-    if (ssl.status === 'active' && ssl.hasSSL && ssl.expiryDate) {
-      try {
-        const date = new Date(ssl.expiryDate);
-        if (isNaN(date.getTime())) return 'Invalid Date';
-        return date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric' 
-        });
-      } catch (error) {
-        console.error('Error formatting expiry date:', error);
-        return 'Invalid Date';
-      }
+    let className = 'text-muted';
+    if (ssl.isExpired) {
+      className = 'text-danger';
+    } else if (ssl.isExpiringSoon) {
+      className = 'text-warning';
     }
-    
-    return 'N/A';
+
+    return `
+      <div class="${className}">
+        <div>${expiryDate.toLocaleDateString()}</div>
+        <small>(${daysRemaining} days)</small>
+      </div>
+    `;
   }
 
   getDaysUntilExpiry(ssl) {
-    if (!ssl) return 'N/A';
+    if (!ssl || !ssl.expiryDate) return 0;
     
-    // Check if SSL is not active
-    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
-      return 'N/A';
-    }
+    const now = new Date();
+    const expiry = new Date(ssl.expiryDate);
+    const diffTime = expiry.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    // Only show days for active SSL certificates
-    if (ssl.status === 'active' && ssl.hasSSL) {
-      // Check if daysUntilExpiry is provided
-      if (ssl.daysUntilExpiry !== undefined) {
-        if (ssl.daysUntilExpiry <= 0) return 'Expired';
-        return `${ssl.daysUntilExpiry} days`;
-      }
-      
-      // Calculate days if expiryDate is available
-      if (ssl.expiryDate) {
-        try {
-          const expiryDate = new Date(ssl.expiryDate);
-          const today = new Date();
-          const diffTime = expiryDate - today;
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          
-          if (diffDays <= 0) return 'Expired';
-          return `${diffDays} days`;
-        } catch (error) {
-          console.error('Error calculating days until expiry:', error);
-        }
-      }
-    }
-    
-    return 'N/A';
+    return Math.max(0, diffDays);
   }
 }
 
-// Initialize the application
+// Initialize the SSL Manager when DOM is ready
 let sslManager;
-document.addEventListener('DOMContentLoaded', () => {
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    sslManager = new SSLManager();
+  });
+} else {
   sslManager = new SSLManager();
-});
+}
