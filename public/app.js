@@ -635,10 +635,18 @@ class SSLManager {
               <i class="fas fa-shield-alt me-2"></i>
               SSL Certificate Manager
             </a>
-            <div class="navbar-nav ms-auto">
-              <span class="navbar-text" id="connection-status">
+            <div class="navbar-nav ms-auto d-flex align-items-center">
+              <span class="navbar-text me-3" id="connection-status">
                 <i class="fas fa-spinner fa-spin me-1"></i>Connecting...
               </span>
+              <span class="navbar-text me-3">
+                <i class="fas fa-user me-1"></i>
+                Welcome, ${this.currentUser || 'adminssl'}
+              </span>
+              <button class="btn btn-outline-light btn-sm" onclick="sslManager.logout()">
+                <i class="fas fa-sign-out-alt me-1"></i>
+                Logout
+              </button>
             </div>
           </div>
         </nav>

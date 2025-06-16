@@ -141,6 +141,9 @@ Changelog:
 - June 16, 2025: DNS method configured for manual certificate creation with automated nginx configuration post-install
 - June 16, 2025: Fixed acme.sh email validation error by ensuring proper email format with domain
 - June 16, 2025: Corrected CloudNS API credential passing using environment variables for acme.sh
+- June 16, 2025: Implemented session-based authentication system without database
+- June 16, 2025: Added login/logout functionality with 24-hour session timeout
+- June 16, 2025: Protected all API routes with authentication middleware
 ```
 
 ## User Preferences
