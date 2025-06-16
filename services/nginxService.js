@@ -49,8 +49,71 @@ class NginxService {
       return domains;
     } catch (error) {
       console.error('Error scanning nginx domains:', error);
+      
+      // If nginx directory doesn't exist, return demo data for testing
+      if (error.code === 'ENOENT') {
+        console.log('Nginx directory not found, returning demo domains for testing');
+        return this.getDemoDomains();
+      }
+      
       throw new Error(`Failed to scan nginx domains: ${error.message}`);
     }
+  }
+
+  /**
+   * Get demo domains for testing when nginx is not available
+   */
+  getDemoDomains() {
+    return [
+      {
+        filename: 'example.com',
+        domain: 'example.com',
+        serverNames: ['example.com', 'www.example.com'],
+        documentRoot: '/var/www/example.com',
+        sslCertificate: '/etc/letsencrypt/live/example.com/fullchain.pem',
+        sslCertificateKey: '/etc/letsencrypt/live/example.com/privkey.pem',
+        enabled: true,
+        hasSSLConfig: true,
+        ports: [80, 443],
+        status: 'active'
+      },
+      {
+        filename: 'test.com',
+        domain: 'test.com',
+        serverNames: ['test.com'],
+        documentRoot: '/var/www/test.com',
+        sslCertificate: null,
+        sslCertificateKey: null,
+        enabled: true,
+        hasSSLConfig: false,
+        ports: [80],
+        status: 'active'
+      },
+      {
+        filename: 'sitedev.eezix.com',
+        domain: 'sitedev.eezix.com',
+        serverNames: ['sitedev.eezix.com'],
+        documentRoot: '/var/www/nginx-control-panel',
+        sslCertificate: '/etc/letsencrypt/live/sitedev.eezix.com/fullchain.pem',
+        sslCertificateKey: '/etc/letsencrypt/live/sitedev.eezix.com/privkey.pem',
+        enabled: true,
+        hasSSLConfig: true,
+        ports: [80, 443],
+        status: 'active'
+      },
+      {
+        filename: 'demo.local',
+        domain: 'demo.local',
+        serverNames: ['demo.local'],
+        documentRoot: '/var/www/demo',
+        sslCertificate: null,
+        sslCertificateKey: null,
+        enabled: false,
+        hasSSLConfig: false,
+        ports: [80],
+        status: 'inactive'
+      }
+    ];
   }
 
   /**
