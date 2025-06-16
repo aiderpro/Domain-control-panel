@@ -146,6 +146,9 @@ class SSLManager {
       this.updateStats();
       this.renderDomainList();
       this.renderSSLPanel();
+      
+      // Ensure loading is set to false after successful load
+      this.loading = false;
     } catch (error) {
       console.error('Error loading domains:', error);
       this.loading = false;
@@ -166,8 +169,6 @@ class SSLManager {
       }
       
       this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
-    } finally {
-      this.loading = false;
     }
   }
 
@@ -1092,7 +1093,7 @@ class SSLManager {
 
   async validateDomain(domain) {
     try {
-      const response = await this.api('POST', '/nginx/validate-domain', { domain });
+      const response = await this.api('POST', '/api/nginx/validate-domain', { domain });
       return response;
     } catch (error) {
       return { valid: false, error: error.response?.data?.error || error.message };
@@ -1125,7 +1126,7 @@ class SSLManager {
       // Domain is valid, proceed with addition
       this.showValidationMessage('Domain valid, adding to nginx...', 'success');
       
-      const response = await this.api('POST', '/nginx/add-domain', { domain });
+      const response = await this.api('POST', '/api/nginx/add-domain', { domain });
       
       if (response.success) {
         this.addNotification('success', `Domain ${domain} added successfully`, true);
