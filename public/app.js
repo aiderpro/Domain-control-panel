@@ -28,12 +28,18 @@ class SSLManager {
   }
 
   getApiBaseUrl() {
-    // Use production server for API calls
-    const productionApiUrl = 'https://sitedev.eezix.com';
+    // Use local development server for testing
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     
-    console.log('Using production API server:', productionApiUrl);
-    
-    return productionApiUrl;
+    if (isLocal) {
+      const localApiUrl = `${window.location.protocol}//${window.location.host}`;
+      console.log('Using local API server:', localApiUrl);
+      return localApiUrl;
+    } else {
+      const productionApiUrl = 'https://sitedev.eezix.com';
+      console.log('Using production API server:', productionApiUrl);
+      return productionApiUrl;
+    }
   }
 
   async init() {
@@ -70,7 +76,7 @@ class SSLManager {
   }
 
   initSocket() {
-    // Configure Socket.IO connection to production server
+    // Configure Socket.IO connection
     const socketOptions = {
       transports: ['polling', 'websocket'],
       upgrade: true,
@@ -79,7 +85,11 @@ class SSLManager {
       forceNew: false
     };
     
-    this.socket = io('https://sitedev.eezix.com', socketOptions);
+    // Use appropriate server based on environment
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://sitedev.eezix.com';
+    
+    this.socket = io(socketUrl, socketOptions);
     
     this.socket.on('connect', () => {
       console.log('Connected to server');
