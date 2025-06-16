@@ -1030,15 +1030,11 @@ class SSLManager {
           <div class="mb-3">
             <label class="form-label fw-bold">Actions</label>
             <div class="d-grid gap-2">
-              ${!ssl?.hasSSL ? `
-                <button class="btn btn-success" onclick="sslManager.toggleInstallForm('${domain.domain}')">
-                  <i class="fas fa-plus me-1"></i> Install SSL Certificate
-                </button>
-              ` : `
+              ${ssl?.hasSSL ? `
                 <button class="btn btn-warning" onclick="sslManager.renewSSL('${domain.domain}')">
                   <i class="fas fa-sync-alt me-1"></i> Renew Certificate
                 </button>
-              `}
+              ` : ''}
               <button class="btn btn-danger" onclick="sslManager.deleteDomain('${domain.domain}')">
                 <i class="fas fa-trash me-1"></i> Delete Domain
               </button>

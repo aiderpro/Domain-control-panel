@@ -1,36 +1,58 @@
 const axios = require('axios');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const fs = require('fs').promises;
+const path = require('path');
 const execAsync = promisify(exec);
 
 class CloudNSService {
   constructor() {
     this.apiBaseUrl = 'https://api.cloudns.net';
-    // CloudNS API credentials will be from environment variables
-    this.authId = process.env.CLOUDNS_AUTH_ID;
-    this.authPassword = process.env.CLOUDNS_AUTH_PASSWORD;
-    this.subAuthId = process.env.CLOUDNS_SUB_AUTH_ID;
+    this.configFile = path.join(__dirname, '..', '.cloudns-config');
+    this.credentials = null;
+  }
+
+  /**
+   * Load CloudNS credentials from hidden config file
+   */
+  async loadCredentials() {
+    try {
+      const configData = await fs.readFile(this.configFile, 'utf8');
+      this.credentials = JSON.parse(configData);
+      return true;
+    } catch (error) {
+      // Config file doesn't exist or is invalid
+      this.credentials = null;
+      return false;
+    }
   }
 
   /**
    * Check if CloudNS credentials are configured
    */
-  isConfigured() {
-    return !!(this.authId && this.authPassword);
+  async isConfigured() {
+    await this.loadCredentials();
+    return !!(this.credentials && this.credentials.authId && this.credentials.authPassword);
   }
 
   /**
    * Get authentication parameters for CloudNS API
    */
-  getAuthParams() {
+  async getAuthParams() {
+    await this.loadCredentials();
+    
+    if (!this.credentials) {
+      throw new Error('CloudNS credentials not configured');
+    }
+    
     const params = {};
     
-    if (this.subAuthId) {
-      params['sub-auth-id'] = this.subAuthId;
-      params['auth-password'] = this.authPassword;
+    if (this.credentials.subAuthId) {
+      params['sub-auth-id'] = this.credentials.subAuthId;
+      params['auth-password'] = this.credentials.authPassword;
     } else {
-      params['auth-id'] = this.authId;
-      params['auth-password'] = this.authPassword;
+      params['auth-id'] = this.credentials.authId;
+      params['auth-password'] = this.credentials.authPassword;
     }
     
     return params;
@@ -41,7 +63,7 @@ class CloudNSService {
    */
   async createTxtRecord(domain, recordName, recordValue) {
     try {
-      if (!this.isConfigured()) {
+      if (!(await this.isConfigured())) {
         throw new Error('CloudNS credentials not configured');
       }
 
@@ -49,7 +71,7 @@ class CloudNSService {
       const zone = this.extractZone(domain);
       
       const params = {
-        ...this.getAuthParams(),
+        ...(await this.getAuthParams()),
         'domain-name': zone,
         'record-type': 'TXT',
         'host': recordName.replace(`.${zone}`, ''),
@@ -81,14 +103,14 @@ class CloudNSService {
    */
   async deleteTxtRecord(domain, recordId) {
     try {
-      if (!this.isConfigured()) {
+      if (!(await this.isConfigured())) {
         throw new Error('CloudNS credentials not configured');
       }
 
       const zone = this.extractZone(domain);
       
       const params = {
-        ...this.getAuthParams(),
+        ...(await this.getAuthParams()),
         'domain-name': zone,
         'record-id': recordId
       };
@@ -128,8 +150,8 @@ class CloudNSService {
   async installSSLWithDNS(domain, email, io = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        if (!this.isConfigured()) {
-          throw new Error('CloudNS credentials not configured. Please set CLOUDNS_AUTH_ID and CLOUDNS_AUTH_PASSWORD environment variables.');
+        if (!(await this.isConfigured())) {
+          throw new Error('CloudNS credentials not configured. Please create .cloudns-config file with your CloudNS API credentials.');
         }
 
         if (io) {
@@ -223,10 +245,10 @@ DOMAIN="$CERTBOT_DOMAIN"
 VALIDATION="$CERTBOT_VALIDATION"
 TOKEN="$CERTBOT_TOKEN"
 
-# CloudNS API credentials
-AUTH_ID="${this.authId}"
-AUTH_PASSWORD="${this.authPassword}"
-SUB_AUTH_ID="${this.subAuthId || ''}"
+# CloudNS API credentials will be loaded from config
+AUTH_ID="${this.credentials?.authId || ''}"
+AUTH_PASSWORD="${this.credentials?.authPassword || ''}"
+SUB_AUTH_ID="${this.credentials?.subAuthId || ''}"
 
 # Determine record name for DNS challenge
 RECORD_NAME="_acme-challenge"
