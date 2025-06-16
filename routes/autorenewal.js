@@ -6,16 +6,17 @@ const path = require('path');
 const nginxService = require('../services/nginxService');
 const sslService = require('../services/sslService');
 
-// Autorenewal configuration file
-const AUTORENEWAL_CONFIG_FILE = '/var/lib/ssl-manager/autorenewal.json';
-const AUTORENEWAL_LOG_FILE = '/var/lib/ssl-manager/autorenewal.log';
+// Autorenewal configuration file - use local directory for development
+const CONFIG_DIR = path.join(__dirname, '..', 'data');
+const AUTORENEWAL_CONFIG_FILE = path.join(CONFIG_DIR, 'autorenewal.json');
+const AUTORENEWAL_LOG_FILE = path.join(CONFIG_DIR, 'autorenewal.log');
 
 // Ensure autorenewal directory exists
 async function ensureAutorenewalDir() {
   try {
-    await fs.mkdir('/var/lib/ssl-manager', { recursive: true });
+    await fs.mkdir(CONFIG_DIR, { recursive: true });
   } catch (error) {
-    // Directory might already exist
+    console.error('Error creating config directory:', error);
   }
 }
 

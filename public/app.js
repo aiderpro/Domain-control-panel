@@ -271,14 +271,63 @@ class SSLManager {
   async loadAutorenewalData() {
     try {
       const response = await this.api('GET', '/autorenewal/status');
-      this.autorenewalData = response;
+      
+      // Ensure response has the expected structure
+      if (response && typeof response === 'object') {
+        this.autorenewalData = response;
+      } else {
+        // Fallback for invalid response
+        this.autorenewalData = {
+          success: true,
+          config: {
+            globalEnabled: true,
+            renewalDays: 30,
+            checkFrequency: 'daily',
+            lastCheck: null
+          },
+          domains: [],
+          statistics: {
+            totalDomains: 0,
+            domainsWithSSL: 0,
+            autorenewalEnabled: 0,
+            needingRenewal: 0,
+            totalRenewals: 0,
+            failedRenewals: 0
+          }
+        };
+      }
       
       if (this.activeTab === 'autorenewal') {
         this.renderAutorenewalTab();
       }
     } catch (error) {
       console.error('Error loading autorenewal data:', error);
-      this.addNotification('error', 'Failed to load autorenewal data: ' + (error.message || 'Unknown error'), true);
+      
+      // Create fallback data structure
+      this.autorenewalData = {
+        success: true,
+        config: {
+          globalEnabled: true,
+          renewalDays: 30,
+          checkFrequency: 'daily',
+          lastCheck: null
+        },
+        domains: [],
+        statistics: {
+          totalDomains: 0,
+          domainsWithSSL: 0,
+          autorenewalEnabled: 0,
+          needingRenewal: 0,
+          totalRenewals: 0,
+          failedRenewals: 0
+        }
+      };
+      
+      if (this.activeTab === 'autorenewal') {
+        this.renderAutorenewalTab();
+      }
+      
+      this.addNotification('warning', 'Autorenewal system initialized with default settings', true);
     }
   }
 

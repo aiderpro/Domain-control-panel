@@ -1,0 +1,13 @@
+{
+  "globalEnabled": true,
+  "renewalDays": 30,
+  "checkFrequency": "daily",
+  "domains": {},
+  "lastCheck": null,
+  "statistics": {
+    "totalRenewals": 0,
+    "successfulRenewals": 0,
+    "failedRenewals": 0,
+    "lastRenewalDate": null
+  }
+}
