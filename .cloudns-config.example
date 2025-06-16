@@ -1,5 +1,16 @@
-{
-  "authId": "your_cloudns_auth_id",
-  "authPassword": "your_cloudns_auth_password",
-  "subAuthId": ""
-}
+# CloudNS API Configuration
+# Copy this file to .cloudns-config and fill in your credentials
+
+# Option 1: Use main auth-id (for main account)
+AUTH_ID=your_auth_id_here
+AUTH_PASSWORD=your_auth_password_here
+
+# Option 2: Use sub-auth-id (for sub-users)
+# SUB_AUTH_ID=your_sub_auth_id_here
+# AUTH_PASSWORD=your_auth_password_here
+
+# Instructions:
+# 1. Get your credentials from CloudNS control panel
+# 2. Copy this file: cp .cloudns-config.example .cloudns-config
+# 3. Edit .cloudns-config with your actual credentials
+# 4. Remove the lines you don't need (keep either AUTH_ID or SUB_AUTH_ID)

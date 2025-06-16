@@ -18,6 +18,7 @@ class CloudNSService {
       try {
         await fs.access(configPath);
       } catch (error) {
+        console.log('CloudNS config file not found at:', configPath);
         return null;
       }
       
@@ -25,12 +26,16 @@ class CloudNSService {
       const config = {};
       
       configContent.split('\n').forEach(line => {
-        const [key, value] = line.split('=');
-        if (key && value) {
-          config[key.trim()] = value.trim();
+        // Skip comments and empty lines
+        if (line.trim() && !line.trim().startsWith('#')) {
+          const [key, value] = line.split('=');
+          if (key && value) {
+            config[key.trim()] = value.trim();
+          }
         }
       });
       
+      console.log('CloudNS config loaded. Found keys:', Object.keys(config));
       this.credentials = config;
       return config;
     } catch (error) {
@@ -147,13 +152,20 @@ class CloudNSService {
       try {
         // Check if CloudNS credentials are configured
         if (!(await this.isConfigured())) {
-          const error = 'CloudNS credentials not configured. Please create .cloudns-config file with your CloudNS API credentials.';
+          const error = 'CloudNS credentials not configured. Please create .cloudns-config file with AUTH_ID and AUTH_PASSWORD from your CloudNS account.';
           
           if (io) {
             io.emit('ssl_install_error', {
               domain,
               method: 'dns',
-              error: error
+              error: error,
+              setup_instructions: [
+                '1. Go to CloudNS.net and log into your account',
+                '2. Get your AUTH_ID and AUTH_PASSWORD from API settings',
+                '3. Copy .cloudns-config.example to .cloudns-config',
+                '4. Replace the placeholder values with your real credentials',
+                '5. Make sure the file is in the project root directory'
+              ]
             });
           }
           
