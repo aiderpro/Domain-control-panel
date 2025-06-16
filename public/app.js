@@ -906,11 +906,11 @@ class SSLManager {
                           <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
                           <select id="ssl-method-${domain.domain}" class="form-select">
                             <option value="nginx" selected>Nginx Method (Recommended)</option>
-                            <option value="dns">DNS Method (CloudNS) - Beta</option>
+                            <option value="dns">DNS Method (CloudNS) - Automated</option>
                           </select>
                           <div class="form-text">
-                            <strong>Nginx:</strong> Web server verification (fully supported)<br>
-                            <strong>DNS:</strong> DNS challenge via CloudNS (requires configuration)
+                            <strong>Nginx:</strong> Web server verification with automatic configuration<br>
+                            <strong>DNS:</strong> DNS challenge with automated nginx setup (requires CloudNS)
                           </div>
                         </div>
                       </div>
