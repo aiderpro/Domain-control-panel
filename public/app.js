@@ -1113,7 +1113,7 @@ class SSLManager {
 
   async validateDomain(domain) {
     try {
-      const response = await this.api('POST', '/api/nginx/validate-domain', { domain });
+      const response = await this.api('POST', '/nginx/validate-domain', { domain });
       return response;
     } catch (error) {
       return { valid: false, error: error.response?.data?.error || error.message };
@@ -1146,7 +1146,7 @@ class SSLManager {
       // Domain is valid, proceed with addition
       this.showValidationMessage('Domain valid, adding to nginx...', 'success');
       
-      const response = await this.api('POST', '/api/nginx/add-domain', { domain });
+      const response = await this.api('POST', '/nginx/add-domain', { domain });
       
       if (response.success) {
         this.addNotification('success', `Domain ${domain} added successfully`, true);
