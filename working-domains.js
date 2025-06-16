@@ -6,6 +6,16 @@ const { exec, spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 
+// Test endpoint to verify updated file is deployed
+router.get('/test-deployment', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Updated domains.js file is active',
+    timestamp: new Date().toISOString(),
+    version: 'ssl-detection-fixed'
+  });
+});
+
 // Get all domains from nginx sites-available
 router.get('/', async (req, res) => {
   try {
