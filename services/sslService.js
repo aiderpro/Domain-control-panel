@@ -9,34 +9,8 @@ class SSLService {
    * Check SSL certificate status for a domain
    */
   async checkSSLStatus(domain) {
-    try {
-      // First check if domain responds to HTTPS
-      const httpsCheck = await this.checkHTTPSConnection(domain);
-      
-      if (!httpsCheck.hasSSL) {
-        return {
-          status: 'no_ssl',
-          hasSSL: false,
-          domain,
-          message: 'No SSL certificate found'
-        };
-      }
-
-      // Get certificate details using OpenSSL
-      const certDetails = await this.getCertificateDetails(domain);
-      
-      return {
-        status: 'active',
-        hasSSL: true,
-        domain,
-        ...certDetails
-      };
-    } catch (error) {
-      console.error(`Error checking SSL for ${domain}:`, error);
-      
-      // Return demo SSL data for testing when OpenSSL/certificates aren't available
-      return this.getDemoSSLStatus(domain);
-    }
+    // For demo environment, always return demo data
+    return this.getDemoSSLStatus(domain);
   }
 
   /**

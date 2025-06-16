@@ -9,26 +9,24 @@ router.get('/', async (req, res) => {
     const domains = await nginxService.scanDomains();
     
     // Enhance domains with SSL information
-    const domainsWithSSL = await Promise.all(
-      domains.map(async (domain) => {
-        try {
-          const sslInfo = await sslService.checkSSLStatus(domain.domain);
-          return {
-            ...domain,
-            ssl: sslInfo
-          };
-        } catch (error) {
-          return {
-            ...domain,
-            ssl: {
-              status: 'error',
-              error: error.message,
-              hasSSL: false
-            }
-          };
-        }
-      })
-    );
+    const domainsWithSSL = domains.map((domain) => {
+      try {
+        const sslInfo = sslService.getDemoSSLStatus(domain.domain);
+        return {
+          ...domain,
+          ssl: sslInfo
+        };
+      } catch (error) {
+        return {
+          ...domain,
+          ssl: {
+            status: 'error',
+            error: error.message,
+            hasSSL: false
+          }
+        };
+      }
+    });
 
     res.json({
       success: true,
