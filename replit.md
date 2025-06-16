@@ -134,6 +134,9 @@ Changelog:
 - June 16, 2025: Restored complete frontend functionality after blank page issue
 - June 16, 2025: Added complete domain deletion functionality with SSL certificate removal
 - June 16, 2025: Created production deployment scripts for seamless updates
+- June 16, 2025: Added CloudNS DNS method for SSL installation with dropdown selection
+- June 16, 2025: Implemented method tracking for renewals (nginx/DNS methods preserved)
+- June 16, 2025: Created comprehensive CloudNS API integration for DNS challenges
 ```
 
 ## User Preferences
