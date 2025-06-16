@@ -28,16 +28,12 @@ class SSLManager {
   }
 
   getApiBaseUrl() {
-    // Always use current origin for API calls
-    const currentHost = window.location.host;
-    const protocol = window.location.protocol;
-    const baseUrl = `${protocol}//${currentHost}`;
+    // Use production server for API calls
+    const productionApiUrl = 'https://sitedev.eezix.com';
     
-    console.log('Current host:', currentHost);
-    console.log('Protocol:', protocol);
-    console.log('Calculated API Base URL:', baseUrl);
+    console.log('Using production API server:', productionApiUrl);
     
-    return baseUrl;
+    return productionApiUrl;
   }
 
   async init() {
@@ -48,7 +44,7 @@ class SSLManager {
   }
 
   initSocket() {
-    // Configure Socket.IO connection for both development and production
+    // Configure Socket.IO connection to production server
     const socketOptions = {
       transports: ['polling', 'websocket'],
       upgrade: true,
@@ -57,7 +53,7 @@ class SSLManager {
       forceNew: false
     };
     
-    this.socket = io(socketOptions);
+    this.socket = io('https://sitedev.eezix.com', socketOptions);
     
     this.socket.on('connect', () => {
       console.log('Connected to server');
