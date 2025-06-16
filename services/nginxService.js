@@ -64,7 +64,44 @@ class NginxService {
    * Get demo domains for testing when nginx is not available
    */
   getDemoDomains() {
-    return [
+    const baseDomains = [
+      'example.com', 'test.com', 'sitedev.eezix.com', 'demo.local', 'mysite.org',
+      'webstore.net', 'blog.co', 'portfolio.dev', 'company.biz', 'startup.io'
+    ];
+    
+    const tlds = ['.com', '.net', '.org', '.io', '.dev', '.co', '.biz', '.app', '.tech', '.online'];
+    const prefixes = ['www', 'api', 'admin', 'blog', 'shop', 'app', 'mail', 'cdn', 'static', 'media'];
+    const domains = [];
+    
+    // Generate a variety of demo domains to simulate 100+ domains
+    for (let i = 1; i <= 100; i++) {
+      const tld = tlds[i % tlds.length];
+      const prefix = i % 3 === 0 ? prefixes[i % prefixes.length] + '.' : '';
+      const baseName = `domain${i}`;
+      const fullDomain = `${prefix}${baseName}${tld}`;
+      
+      // Vary SSL status - some have SSL, some don't, some are expiring
+      const hasSSL = i % 4 !== 0; // 75% have SSL
+      const isExpiring = hasSSL && i % 7 === 0; // Some are expiring
+      const isExpired = hasSSL && i % 15 === 0; // Some are expired
+      const isEnabled = i % 10 !== 0; // 90% are enabled
+      
+      domains.push({
+        filename: fullDomain,
+        domain: fullDomain,
+        serverNames: i % 3 === 0 ? [fullDomain, `www.${fullDomain}`] : [fullDomain],
+        documentRoot: `/var/www/${fullDomain}`,
+        sslCertificate: hasSSL ? `/etc/letsencrypt/live/${fullDomain}/fullchain.pem` : null,
+        sslCertificateKey: hasSSL ? `/etc/letsencrypt/live/${fullDomain}/privkey.pem` : null,
+        enabled: isEnabled,
+        hasSSLConfig: hasSSL,
+        ports: hasSSL ? [80, 443] : [80],
+        status: isEnabled ? 'active' : 'inactive'
+      });
+    }
+    
+    // Add the original demo domains
+    domains.unshift(
       {
         filename: 'example.com',
         domain: 'example.com',
@@ -100,20 +137,10 @@ class NginxService {
         hasSSLConfig: true,
         ports: [80, 443],
         status: 'active'
-      },
-      {
-        filename: 'demo.local',
-        domain: 'demo.local',
-        serverNames: ['demo.local'],
-        documentRoot: '/var/www/demo',
-        sslCertificate: null,
-        sslCertificateKey: null,
-        enabled: false,
-        hasSSLConfig: false,
-        ports: [80],
-        status: 'inactive'
       }
-    ];
+    );
+    
+    return domains;
   }
 
   /**

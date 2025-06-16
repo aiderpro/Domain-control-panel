@@ -43,7 +43,8 @@ class SSLService {
    * Get demo SSL status for testing
    */
   getDemoSSLStatus(domain) {
-    const demoData = {
+    // Static demo data for specific domains
+    const specificData = {
       'example.com': {
         status: 'active',
         hasSSL: true,
@@ -77,16 +78,64 @@ class SSLService {
         issuer: 'CN=R3, O=Let\'s Encrypt, C=US',
         issuerOrg: 'Let\'s Encrypt',
         fingerprint: 'AB:CD:EF:12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF:12'
-      },
-      'demo.local': {
-        status: 'no_ssl',
-        hasSSL: false,
-        domain,
-        message: 'No SSL certificate found'
       }
     };
 
-    return demoData[domain] || {
+    if (specificData[domain]) {
+      return specificData[domain];
+    }
+
+    // Generate dynamic SSL status for demo domains based on domain pattern
+    const domainNumber = domain.match(/domain(\d+)/);
+    if (domainNumber) {
+      const num = parseInt(domainNumber[1]);
+      const hasSSL = num % 4 !== 0; // 75% have SSL (matching nginx service)
+      
+      if (!hasSSL) {
+        return {
+          status: 'no_ssl',
+          hasSSL: false,
+          domain,
+          message: 'No SSL certificate found'
+        };
+      }
+
+      const isExpired = num % 15 === 0; // Some are expired
+      const isExpiring = !isExpired && num % 7 === 0; // Some are expiring
+      
+      const now = new Date();
+      const issuedDate = new Date(now.getTime() - (90 * 24 * 60 * 60 * 1000)); // 90 days ago
+      let expiryDate, daysUntilExpiry;
+      
+      if (isExpired) {
+        expiryDate = new Date(now.getTime() - (5 * 24 * 60 * 60 * 1000)); // Expired 5 days ago
+        daysUntilExpiry = -5;
+      } else if (isExpiring) {
+        expiryDate = new Date(now.getTime() + (15 * 24 * 60 * 60 * 1000)); // Expires in 15 days
+        daysUntilExpiry = 15;
+      } else {
+        expiryDate = new Date(now.getTime() + (60 * 24 * 60 * 60 * 1000)); // Expires in 60 days
+        daysUntilExpiry = 60;
+      }
+
+      return {
+        status: 'active',
+        hasSSL: true,
+        domain,
+        issuedDate,
+        expiryDate,
+        daysUntilExpiry,
+        isExpiringSoon: isExpiring,
+        isExpired: isExpired,
+        commonName: domain,
+        issuer: 'CN=R3, O=Let\'s Encrypt, C=US',
+        issuerOrg: 'Let\'s Encrypt',
+        fingerprint: `${num.toString(16).padStart(2, '0')}:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF:12:34:56:78`
+      };
+    }
+
+    // Default for unknown domains
+    return {
       status: 'no_ssl',
       hasSSL: false,
       domain,

@@ -3,11 +3,23 @@
 class SSLManager {
   constructor() {
     this.domains = [];
+    this.filteredDomains = [];
     this.selectedDomain = null;
     this.socket = null;
     this.notifications = [];
     this.loading = false;
     this.connectionStatus = 'connecting';
+    
+    // Pagination settings
+    this.currentPage = 1;
+    this.itemsPerPage = 25;
+    this.totalPages = 1;
+    
+    // Filter and search settings
+    this.searchTerm = '';
+    this.statusFilter = 'all'; // all, ssl, no-ssl, expiring, expired
+    this.sortBy = 'domain'; // domain, expiry, status
+    this.sortOrder = 'asc'; // asc, desc
     
     this.init();
   }
@@ -96,6 +108,7 @@ class SSLManager {
       
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
+      this.applyFiltersAndSort();
       this.updateStats();
       this.renderDomainList();
       this.renderSSLPanel();
@@ -105,6 +118,109 @@ class SSLManager {
     } finally {
       this.loading = false;
     }
+  }
+
+  applyFiltersAndSort() {
+    let filtered = [...this.domains];
+    
+    // Apply search filter
+    if (this.searchTerm) {
+      const searchLower = this.searchTerm.toLowerCase();
+      filtered = filtered.filter(domain => 
+        domain.domain.toLowerCase().includes(searchLower) ||
+        (domain.serverNames && domain.serverNames.some(name => 
+          name.toLowerCase().includes(searchLower)
+        ))
+      );
+    }
+    
+    // Apply status filter
+    if (this.statusFilter !== 'all') {
+      filtered = filtered.filter(domain => {
+        const ssl = domain.ssl;
+        switch (this.statusFilter) {
+          case 'ssl': return ssl?.hasSSL === true;
+          case 'no-ssl': return !ssl?.hasSSL;
+          case 'expiring': return ssl?.hasSSL && ssl?.isExpiringSoon && !ssl?.isExpired;
+          case 'expired': return ssl?.hasSSL && ssl?.isExpired;
+          default: return true;
+        }
+      });
+    }
+    
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (this.sortBy) {
+        case 'expiry':
+          aValue = a.ssl?.expiryDate ? new Date(a.ssl.expiryDate) : new Date(0);
+          bValue = b.ssl?.expiryDate ? new Date(b.ssl.expiryDate) : new Date(0);
+          break;
+        case 'status':
+          aValue = this.getSSLSortValue(a.ssl);
+          bValue = this.getSSLSortValue(b.ssl);
+          break;
+        default: // domain
+          aValue = a.domain.toLowerCase();
+          bValue = b.domain.toLowerCase();
+      }
+      
+      if (this.sortOrder === 'desc') {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      } else {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      }
+    });
+    
+    this.filteredDomains = filtered;
+    this.totalPages = Math.ceil(filtered.length / this.itemsPerPage);
+    
+    // Reset to first page if current page is beyond total pages
+    if (this.currentPage > this.totalPages) {
+      this.currentPage = 1;
+    }
+  }
+
+  getSSLSortValue(ssl) {
+    if (!ssl || !ssl.hasSSL) return 0;
+    if (ssl.isExpired) return 1;
+    if (ssl.isExpiringSoon) return 2;
+    return 3;
+  }
+
+  getCurrentPageDomains() {
+    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+    const endIndex = startIndex + this.itemsPerPage;
+    return this.filteredDomains.slice(startIndex, endIndex);
+  }
+
+  setPage(page) {
+    if (page >= 1 && page <= this.totalPages) {
+      this.currentPage = page;
+      this.renderDomainList();
+    }
+  }
+
+  setSearch(term) {
+    this.searchTerm = term;
+    this.currentPage = 1;
+    this.applyFiltersAndSort();
+    this.renderDomainList();
+  }
+
+  setStatusFilter(filter) {
+    this.statusFilter = filter;
+    this.currentPage = 1;
+    this.applyFiltersAndSort();
+    this.renderDomainList();
+  }
+
+  setSorting(sortBy, sortOrder) {
+    this.sortBy = sortBy;
+    this.sortOrder = sortOrder;
+    this.applyFiltersAndSort();
+    this.renderDomainList();
   }
 
   async refreshDomains() {
@@ -157,6 +273,12 @@ class SSLManager {
     document.getElementById('stat-ssl').textContent = withSSL;
     document.getElementById('stat-expiring').textContent = expiringSoon;
     document.getElementById('stat-expired').textContent = expired;
+    
+    // Update filtered stats
+    if (document.getElementById('filtered-stats')) {
+      document.getElementById('filtered-stats').innerHTML = 
+        `Showing ${this.filteredDomains.length} of ${total} domains`;
+    }
   }
 
   selectDomain(domain) {
@@ -351,10 +473,16 @@ class SSLManager {
                 <i class="fas fa-list me-2"></i>
                 Domains
               </h5>
-              <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
-                <i class="fas fa-sync-alt me-1"></i>
-                Refresh
-              </button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
+                  <i class="fas fa-sync-alt me-1"></i>
+                  Refresh
+                </button>
+                <button class="btn btn-success btn-sm" onclick="sslManager.showBulkInstallForm()">
+                  <i class="fas fa-plus me-1"></i>
+                  Bulk Install SSL
+                </button>
+              </div>
             </div>
             <div class="card-body p-0">
               <div id="domain-list-container">
@@ -410,12 +538,57 @@ class SSLManager {
       return;
     }
 
-    const tableRows = this.domains.map(domain => {
+    // Render search and filter controls
+    const controlsHtml = `
+      <div class="p-3 border-bottom">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div class="input-group">
+              <span class="input-group-text"><i class="fas fa-search"></i></span>
+              <input type="text" class="form-control" placeholder="Search domains..." 
+                     value="${this.searchTerm}" 
+                     onkeyup="sslManager.setSearch(this.value)">
+            </div>
+          </div>
+          <div class="col-md-3">
+            <select class="form-select" onchange="sslManager.setStatusFilter(this.value)">
+              <option value="all" ${this.statusFilter === 'all' ? 'selected' : ''}>All Domains</option>
+              <option value="ssl" ${this.statusFilter === 'ssl' ? 'selected' : ''}>With SSL</option>
+              <option value="no-ssl" ${this.statusFilter === 'no-ssl' ? 'selected' : ''}>No SSL</option>
+              <option value="expiring" ${this.statusFilter === 'expiring' ? 'selected' : ''}>Expiring Soon</option>
+              <option value="expired" ${this.statusFilter === 'expired' ? 'selected' : ''}>Expired</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select class="form-select" onchange="sslManager.setSorting(this.value, '${this.sortOrder}')">
+              <option value="domain" ${this.sortBy === 'domain' ? 'selected' : ''}>Sort by Domain</option>
+              <option value="expiry" ${this.sortBy === 'expiry' ? 'selected' : ''}>Sort by Expiry</option>
+              <option value="status" ${this.sortBy === 'status' ? 'selected' : ''}>Sort by Status</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-outline-secondary" onclick="sslManager.setSorting('${this.sortBy}', '${this.sortOrder === 'asc' ? 'desc' : 'asc'}')">
+              <i class="fas fa-sort-${this.sortOrder === 'asc' ? 'up' : 'down'}"></i>
+              ${this.sortOrder === 'asc' ? 'Asc' : 'Desc'}
+            </button>
+          </div>
+        </div>
+        <div class="mt-2">
+          <small class="text-muted" id="filtered-stats">
+            Showing ${this.filteredDomains.length} of ${this.domains.length} domains
+          </small>
+        </div>
+      </div>
+    `;
+
+    const currentPageDomains = this.getCurrentPageDomains();
+    const tableRows = currentPageDomains.map(domain => {
       const ssl = domain.ssl;
       const sslBadge = this.getSSLStatusBadge(ssl);
       const sslIcon = this.getSSLIcon(ssl);
       const expiryDate = this.formatExpiryDate(ssl);
       const daysLeft = this.getDaysUntilExpiry(ssl);
+      const hasSSL = ssl?.hasSSL;
       
       return `
         <tr class="cursor-pointer" data-domain="${domain.domain}" onclick="sslManager.selectDomain(${JSON.stringify(domain).replace(/"/g, '&quot;')})">
@@ -444,11 +617,31 @@ class SSLManager {
               '<span class="badge bg-success"><i class="fas fa-check"></i> Enabled</span>' : 
               '<span class="badge bg-secondary"><i class="fas fa-times"></i> Disabled</span>'}
           </td>
+          <td>
+            <div class="btn-group btn-group-sm" role="group">
+              ${!hasSSL ? `
+                <button class="btn btn-success" onclick="event.stopPropagation(); sslManager.showInstallForm('${domain.domain}')" title="Install SSL Certificate">
+                  <i class="fas fa-plus"></i> Install SSL
+                </button>
+              ` : `
+                <button class="btn btn-primary" onclick="event.stopPropagation(); sslManager.renewSSL('${domain.domain}')" title="Renew SSL Certificate">
+                  <i class="fas fa-sync-alt"></i> Renew
+                </button>
+              `}
+              <button class="btn btn-outline-secondary" onclick="event.stopPropagation(); sslManager.selectDomain(${JSON.stringify(domain).replace(/"/g, '&quot;')})" title="View Details">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
 
+    // Render pagination controls
+    const paginationHtml = this.renderPagination();
+
     container.innerHTML = `
+      ${controlsHtml}
       <div class="table-responsive">
         <table class="table table-hover mb-0" id="domain-table">
           <thead class="table-light">
@@ -458,12 +651,71 @@ class SSLManager {
               <th>Expires</th>
               <th>Days Left</th>
               <th>Enabled</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             ${tableRows}
           </tbody>
         </table>
+      </div>
+      ${paginationHtml}
+    `;
+  }
+
+  renderPagination() {
+    if (this.totalPages <= 1) return '';
+
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    let startPage = Math.max(1, this.currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(this.totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+
+    const pageButtons = pages.map(page => `
+      <button class="btn btn-sm ${page === this.currentPage ? 'btn-primary' : 'btn-outline-primary'}" 
+              onclick="sslManager.setPage(${page})">${page}</button>
+    `).join('');
+
+    return `
+      <div class="p-3 border-top">
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="text-muted">
+            Page ${this.currentPage} of ${this.totalPages} 
+            (${((this.currentPage - 1) * this.itemsPerPage) + 1}-${Math.min(this.currentPage * this.itemsPerPage, this.filteredDomains.length)} of ${this.filteredDomains.length})
+          </div>
+          <div class="btn-group" role="group">
+            <button class="btn btn-sm btn-outline-primary" 
+                    onclick="sslManager.setPage(1)" 
+                    ${this.currentPage === 1 ? 'disabled' : ''}>
+              <i class="fas fa-angle-double-left"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-primary" 
+                    onclick="sslManager.setPage(${this.currentPage - 1})" 
+                    ${this.currentPage === 1 ? 'disabled' : ''}>
+              <i class="fas fa-angle-left"></i>
+            </button>
+            ${pageButtons}
+            <button class="btn btn-sm btn-outline-primary" 
+                    onclick="sslManager.setPage(${this.currentPage + 1})" 
+                    ${this.currentPage === this.totalPages ? 'disabled' : ''}>
+              <i class="fas fa-angle-right"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-primary" 
+                    onclick="sslManager.setPage(${this.totalPages})" 
+                    ${this.currentPage === this.totalPages ? 'disabled' : ''}>
+              <i class="fas fa-angle-double-right"></i>
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -647,6 +899,43 @@ class SSLManager {
     } else if (email) {
       alert('Please enter a valid email address.');
     }
+  }
+
+  showBulkInstallForm() {
+    const domainsWithoutSSL = this.domains.filter(d => !d.ssl?.hasSSL);
+    
+    if (domainsWithoutSSL.length === 0) {
+      alert('All domains already have SSL certificates installed.');
+      return;
+    }
+
+    const email = prompt(`Install SSL certificates for ${domainsWithoutSSL.length} domains without SSL?\n\nEnter email address for Let's Encrypt registration:`);
+    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      this.bulkInstallSSL(domainsWithoutSSL, email);
+    } else if (email) {
+      alert('Please enter a valid email address.');
+    }
+  }
+
+  async bulkInstallSSL(domains, email) {
+    this.addNotification('info', `Starting bulk SSL installation for ${domains.length} domains...`, false);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const domain of domains) {
+      try {
+        await this.installSSL(domain.domain, email);
+        successCount++;
+        // Add delay between installations to avoid overwhelming the system
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to install SSL for ${domain.domain}:`, error);
+      }
+    }
+    
+    this.addNotification('success', `Bulk installation completed: ${successCount} successful, ${errorCount} failed`, true);
   }
 
   renderNotifications() {
