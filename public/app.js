@@ -117,21 +117,32 @@ class SSLManager {
 
   async api(method, url, data = null) {
     try {
+      const finalUrl = `/api${url}`;
+      console.log(`Making ${method} request to: ${finalUrl}`);
+      
       const config = {
         method,
-        url: `/api${url}`,
+        url: finalUrl,
         timeout: 60000,
         headers: { 'Content-Type': 'application/json' }
       };
       
       if (data) {
         config.data = data;
+        console.log('Request data:', data);
       }
       
       const response = await axios(config);
+      console.log('API Response:', response.status, response.data);
       return response.data;
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('API Error details:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
       throw error;
     }
   }
