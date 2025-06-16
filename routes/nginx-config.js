@@ -243,6 +243,15 @@ class NginxConfigManager {
    * Ensure document root directory exists
    */
   async ensureDocumentRoot() {
+    // In development, simulate document root creation
+    if (process.env.NODE_ENV !== 'production') {
+      return { 
+        success: true, 
+        path: this.documentRoot,
+        simulated: true 
+      };
+    }
+    
     try {
       await fs.access(this.documentRoot);
       return { success: true };
