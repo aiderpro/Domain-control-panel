@@ -10,6 +10,9 @@ class SSLManager {
     this.loading = false;
     this.connectionStatus = 'connecting';
     
+    // API Base URL configuration
+    this.apiBaseUrl = this.getApiBaseUrl();
+    
     // Pagination settings
     this.currentPage = 1;
     this.itemsPerPage = 25;
@@ -22,6 +25,24 @@ class SSLManager {
     this.sortOrder = 'asc'; // asc, desc
     
     this.init();
+  }
+
+  getApiBaseUrl() {
+    // For development, use current origin
+    // For production, ensure we use the correct base URL
+    const currentHost = window.location.host;
+    const protocol = window.location.protocol;
+    
+    console.log('Current host:', currentHost);
+    console.log('Protocol:', protocol);
+    
+    // If running on localhost or replit preview, use current origin
+    if (currentHost.includes('localhost') || currentHost.includes('replit.dev')) {
+      return `${protocol}//${currentHost}`;
+    }
+    
+    // For production deployment, use current origin
+    return `${protocol}//${currentHost}`;
   }
 
   async init() {
@@ -117,7 +138,7 @@ class SSLManager {
 
   async api(method, url, data = null) {
     try {
-      const finalUrl = `/api${url}`;
+      const finalUrl = `${this.apiBaseUrl}/api${url}`;
       console.log(`Making ${method} request to: ${finalUrl}`);
       
       const config = {
@@ -1125,9 +1146,12 @@ class SSLManager {
   async validateDomain(domain) {
     try {
       console.log('Validating domain:', domain);
+      console.log('API Base URL:', this.apiBaseUrl);
       
-      // Test with direct fetch first to isolate the issue
-      const fetchResponse = await fetch('/api/nginx/validate-domain', {
+      const url = `${this.apiBaseUrl}/api/nginx/validate-domain`;
+      console.log('Full validation URL:', url);
+      
+      const fetchResponse = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
