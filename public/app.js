@@ -25,10 +25,10 @@ class SSLManager {
   }
 
   async init() {
-    this.initSocket();
     this.renderApp();
     this.bindEvents();
-    await this.loadDomains();
+    this.initSocket();
+    // Don't load domains immediately - wait for socket connection
   }
 
   initSocket() {
@@ -38,6 +38,8 @@ class SSLManager {
       console.log('Connected to server');
       this.connectionStatus = 'connected';
       this.updateConnectionStatus();
+      // Load domains after successful connection
+      this.loadDomains();
     });
 
     this.socket.on('disconnect', () => {
@@ -534,8 +536,20 @@ class SSLManager {
   }
 
   renderLoading() {
+    const mainContent = document.getElementById('main-content');
+    if (!mainContent) return;
+    
     if (this.connectionStatus === 'connected') {
       this.renderDashboard();
+    } else {
+      mainContent.innerHTML = `
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary mb-3" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <h4 class="text-muted">Loading domains...</h4>
+        </div>
+      `;
     }
   }
 
