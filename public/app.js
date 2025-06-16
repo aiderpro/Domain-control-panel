@@ -462,7 +462,15 @@ class SSLManager {
       } else if (error.code === 'ECONNABORTED') {
         this.addNotification('error', `SSL installation timed out for ${domain}. Server may be busy.`, true);
       } else if (error.response?.status === 400 && method === 'dns') {
-        this.addNotification('error', `DNS method not available: ${error.response.data?.message || error.message}. Please use nginx method.`, true);
+        const responseData = error.response.data;
+        if (responseData?.certificate_instructions) {
+          this.addNotification('info', `Certificate creation required for ${domain}:`, true);
+          responseData.certificate_instructions.forEach(instruction => {
+            this.addNotification('info', instruction, true);
+          });
+        } else {
+          this.addNotification('error', `DNS method: ${error.response.data?.message || error.message}`, true);
+        }
       } else if (error.response?.data?.message) {
         this.addNotification('error', `SSL installation failed: ${error.response.data.message}`, true);
       } else {
@@ -906,11 +914,11 @@ class SSLManager {
                           <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
                           <select id="ssl-method-${domain.domain}" class="form-select">
                             <option value="nginx" selected>Nginx Method (Fully Automated)</option>
-                            <option value="dns">DNS Method (Manual Certificate + Auto Config)</option>
+                            <option value="dns">DNS Method (Certificate Check + Auto Config)</option>
                           </select>
                           <div class="form-text">
-                            <strong>Nginx:</strong> Complete automation - web server verification and configuration<br>
-                            <strong>DNS:</strong> Manual certbot certificate creation, then automated nginx setup
+                            <strong>Nginx:</strong> Complete automation - certificate creation and configuration<br>
+                            <strong>DNS:</strong> Checks for existing certificate, provides creation steps if needed
                           </div>
                         </div>
                       </div>

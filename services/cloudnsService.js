@@ -204,24 +204,62 @@ class CloudNSService {
           });
         }
 
-        // DNS method requires manual certificate creation with certbot
-        const error = 'DNS SSL installation requires manual certificate creation with certbot. Use nginx method for automated installation, or run: sudo certbot certonly --manual --preferred-challenges=dns -d ' + domain;
+        // Check if certificate already exists
+        const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
         
-        if (io) {
-          io.emit('ssl_install_error', {
-            domain,
-            method: 'dns',
-            error: error,
-            manual_steps: [
-              '1. Run: sudo certbot certonly --manual --preferred-challenges=dns -d ' + domain,
-              '2. Follow prompts to create DNS TXT record in CloudNS',
-              '3. Certificate will be created in /etc/letsencrypt/live/' + domain + '/',
-              '4. Use nginx method for automated configuration updates'
-            ]
-          });
-        }
+        try {
+          await execAsync(`test -f ${certPath}`);
+          
+          // Certificate exists, proceed with nginx configuration
+          if (io) {
+            io.emit('ssl_install_progress', {
+              domain,
+              stage: 'certificate_found',
+              message: 'SSL certificate found. Updating nginx configuration...'
+            });
+          }
 
-        reject(new Error(error));
+          await this.updateNginxSSLConfig(domain);
+          await this.testAndReloadNginx(domain, io);
+          
+          if (io) {
+            io.emit('ssl_install_complete', {
+              domain,
+              method: 'dns',
+              success: true,
+              message: 'SSL certificate configuration updated successfully.'
+            });
+          }
+
+          resolve({
+            success: true,
+            method: 'dns',
+            message: 'SSL certificate configuration updated successfully.',
+            certificatePath: certPath,
+            keyPath: `/etc/letsencrypt/live/${domain}/privkey.pem`
+          });
+          
+        } catch (certCheckError) {
+          // Certificate doesn't exist, provide manual creation instructions
+          const error = 'SSL certificate not found. Please create certificate manually first.';
+          
+          if (io) {
+            io.emit('ssl_install_error', {
+              domain,
+              method: 'dns',
+              error: error,
+              certificate_instructions: [
+                '1. Create SSL certificate using DNS challenge:',
+                `   sudo certbot certonly --manual --preferred-challenges=dns -d ${domain}`,
+                '2. Follow prompts to add DNS TXT record to your CloudNS account',
+                '3. After certificate creation, try SSL installation again',
+                '4. Certificate will be stored in /etc/letsencrypt/live/' + domain + '/'
+              ]
+            });
+          }
+
+          reject(new Error(error));
+        }
 
       } catch (error) {
         console.error('DNS SSL installation error:', error);
