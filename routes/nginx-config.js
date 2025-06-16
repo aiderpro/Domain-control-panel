@@ -6,9 +6,10 @@ const { spawn } = require('child_process');
 
 class NginxConfigManager {
   constructor() {
-    this.sitesAvailable = '/etc/nginx/sites-available';
+    this.sitesAvailable = process.env.NGINX_SITES_PATH || '/etc/nginx/sites-available';
     this.sitesEnabled = '/etc/nginx/sites-enabled';
-    this.documentRoot = '/var/www/html';
+    // Use different document root for development vs production
+    this.documentRoot = process.env.NODE_ENV === 'production' ? '/var/www/html' : './public/domains';
   }
 
   /**
@@ -45,6 +46,11 @@ class NginxConfigManager {
    */
   async checkDomainExists(domain) {
     try {
+      // In development, check if we have demo domains or simulate check
+      if (process.env.NODE_ENV !== 'production') {
+        return false; // Always allow in development
+      }
+      
       const configFile = path.join(this.sitesAvailable, domain);
       await fs.access(configFile);
       return true;
@@ -108,6 +114,15 @@ class NginxConfigManager {
    * Create nginx configuration file
    */
   async createNginxConfig(domain) {
+    // In development, simulate nginx config creation
+    if (process.env.NODE_ENV !== 'production') {
+      return { 
+        success: true, 
+        path: `./simulated/sites-available/${domain}`,
+        simulated: true 
+      };
+    }
+    
     const configPath = path.join(this.sitesAvailable, domain);
     const config = this.generateNginxConfig(domain);
     
@@ -124,6 +139,15 @@ class NginxConfigManager {
    * Create symbolic link to enable site
    */
   async enableSite(domain) {
+    // In development, simulate enabling site
+    if (process.env.NODE_ENV !== 'production') {
+      return { 
+        success: true, 
+        path: `./simulated/sites-enabled/${domain}`,
+        simulated: true 
+      };
+    }
+    
     const sourcePath = path.join(this.sitesAvailable, domain);
     const linkPath = path.join(this.sitesEnabled, domain);
     
@@ -147,6 +171,15 @@ class NginxConfigManager {
    * Test nginx configuration
    */
   async testNginxConfig() {
+    // In development, simulate nginx test
+    if (process.env.NODE_ENV !== 'production') {
+      return {
+        success: true,
+        output: 'nginx: configuration file test is successful (simulated)',
+        simulated: true
+      };
+    }
+    
     return new Promise((resolve) => {
       const nginx = spawn('nginx', ['-t']);
       let output = '';
@@ -174,6 +207,15 @@ class NginxConfigManager {
    * Reload nginx configuration
    */
   async reloadNginx() {
+    // In development, simulate nginx reload
+    if (process.env.NODE_ENV !== 'production') {
+      return {
+        success: true,
+        output: 'nginx: reload successful (simulated)',
+        simulated: true
+      };
+    }
+    
     return new Promise((resolve) => {
       const nginx = spawn('systemctl', ['reload', 'nginx']);
       let output = '';
