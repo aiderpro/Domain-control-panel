@@ -125,6 +125,9 @@ Changelog:
 - June 16, 2025: Fixed domain addition 404 errors by correcting frontend API endpoint paths
 - June 16, 2025: Resolved loader stuck issue by improving loading state management
 - June 16, 2025: Updated document root configuration to use /var/www/html for all domains
+- June 16, 2025: Configured frontend for production deployment to sitedev.eezix.com
+- June 16, 2025: Identified missing nginx-config.js routes on production server
+- June 16, 2025: Prepared complete Git deployment package with all required files
 ```
 
 ## User Preferences
