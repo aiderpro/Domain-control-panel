@@ -1,0 +1,5 @@
+{
+  "authId": "your_cloudns_auth_id",
+  "authPassword": "your_cloudns_auth_password",
+  "subAuthId": ""
+}
