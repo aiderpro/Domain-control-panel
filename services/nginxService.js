@@ -73,8 +73,8 @@ class NginxService {
     const prefixes = ['www', 'api', 'admin', 'blog', 'shop', 'app', 'mail', 'cdn', 'static', 'media'];
     const domains = [];
     
-    // Generate a variety of demo domains to simulate 100+ domains
-    for (let i = 1; i <= 100; i++) {
+    // Generate a variety of demo domains to simulate 50+ domains
+    for (let i = 1; i <= 50; i++) {
       const tld = tlds[i % tlds.length];
       const prefix = i % 3 === 0 ? prefixes[i % prefixes.length] + '.' : '';
       const baseName = `domain${i}`;
