@@ -32,8 +32,9 @@ router.post('/install', async (req, res) => {
 
     res.json({
       success: true,
-      message: `SSL certificate installed for ${domain}`,
+      message: `SSL certificate installation started for ${domain} using ${method} method`,
       domain,
+      method,
       result,
       timestamp: new Date().toISOString()
     });

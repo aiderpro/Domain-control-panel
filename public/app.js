@@ -197,7 +197,7 @@ class SSLManager {
     });
   }
 
-  async api(method, url, data = null) {
+  async api(method, url, data = null, options = {}) {
     try {
       const finalUrl = `${this.apiBaseUrl}/api${url}`;
       console.log(`Making ${method} request to: ${finalUrl}`);
@@ -205,7 +205,7 @@ class SSLManager {
       const config = {
         method,
         url: finalUrl,
-        timeout: 60000,
+        timeout: options.timeout || 60000,
         headers: { 'Content-Type': 'application/json' }
       };
       
@@ -444,7 +444,10 @@ class SSLManager {
       const methodLabel = method === 'dns' ? 'DNS challenge' : 'nginx verification';
       this.addNotification('info', `Starting SSL installation for ${domain} using ${methodLabel}...`, false);
       
-      const response = await this.api('POST', '/ssl/install', { domain, email, method });
+      // Set longer timeout for DNS method
+      const timeout = method === 'dns' ? 180000 : 120000; // 3 minutes for DNS, 2 minutes for nginx
+      
+      const response = await this.api('POST', '/ssl/install', { domain, email, method }, { timeout });
       
       if (response.success) {
         this.addNotification('success', `SSL installation started for ${domain} using ${methodLabel}`, false);
@@ -453,7 +456,14 @@ class SSLManager {
       }
     } catch (error) {
       console.error('SSL installation error:', error);
-      this.addNotification('error', `SSL installation failed: ${error.message}`, true);
+      
+      if (error.code === 'ECONNABORTED' && method === 'dns') {
+        this.addNotification('error', `DNS SSL installation timed out for ${domain}. CloudNS credentials may not be configured. Try nginx method instead.`, true);
+      } else if (error.code === 'ECONNABORTED') {
+        this.addNotification('error', `SSL installation timed out for ${domain}. Server may be busy.`, true);
+      } else {
+        this.addNotification('error', `SSL installation failed: ${error.message}`, true);
+      }
     }
   }
 
@@ -891,12 +901,12 @@ class SSLManager {
                         <div class="mb-3">
                           <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
                           <select id="ssl-method-${domain.domain}" class="form-select">
-                            <option value="nginx" selected>Nginx Method (Default)</option>
-                            <option value="dns">DNS Method (CloudNS)</option>
+                            <option value="nginx" selected>Nginx Method (Recommended)</option>
+                            <option value="dns">DNS Method (CloudNS) - Beta</option>
                           </select>
                           <div class="form-text">
-                            <strong>Nginx:</strong> Web server verification<br>
-                            <strong>DNS:</strong> DNS challenge (CloudNS)
+                            <strong>Nginx:</strong> Web server verification (fully supported)<br>
+                            <strong>DNS:</strong> DNS challenge via CloudNS (requires configuration)
                           </div>
                         </div>
                       </div>

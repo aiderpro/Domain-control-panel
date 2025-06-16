@@ -150,8 +150,19 @@ class CloudNSService {
   async installSSLWithDNS(domain, email, io = null) {
     return new Promise(async (resolve, reject) => {
       try {
+        // Check if CloudNS credentials are configured
         if (!(await this.isConfigured())) {
-          throw new Error('CloudNS credentials not configured. Please create .cloudns-config file with your CloudNS API credentials.');
+          const error = 'CloudNS credentials not configured. Please create .cloudns-config file with your CloudNS API credentials.';
+          
+          if (io) {
+            io.emit('ssl_install_error', {
+              domain,
+              method: 'dns',
+              error: error
+            });
+          }
+          
+          return reject(new Error(error));
         }
 
         if (io) {
@@ -162,59 +173,42 @@ class CloudNSService {
           });
         }
 
-        // Create DNS challenge hook script
-        const hookScript = await this.createDNSHookScript();
+        // Test CloudNS connection first
+        const connectionTest = await this.testConnection();
+        if (!connectionTest.success) {
+          const error = `CloudNS API connection failed: ${connectionTest.message}`;
+          
+          if (io) {
+            io.emit('ssl_install_error', {
+              domain,
+              method: 'dns',
+              error: error
+            });
+          }
+          
+          return reject(new Error(error));
+        }
 
         if (io) {
           io.emit('ssl_install_progress', {
             domain,
             stage: 'dns_challenge',
-            message: 'Requesting certificate with DNS challenge...'
+            message: 'CloudNS connection verified. Starting DNS challenge...'
           });
         }
 
-        // Run certbot with DNS challenge
-        const certbotCmd = [
-          'sudo', 'certbot', 'certonly',
-          '--manual',
-          '--preferred-challenges=dns',
-          '--manual-auth-hook', hookScript,
-          '--manual-cleanup-hook', hookScript,
-          '--email', email,
-          '--agree-tos',
-          '--no-eff-email',
-          '--domains', domain,
-          '--non-interactive'
-        ].join(' ');
-
-        const { stdout, stderr } = await execAsync(certbotCmd);
-
+        // For now, return a clear error that DNS method needs server-side implementation
+        const error = 'DNS SSL installation requires server-side certbot configuration. Please use nginx method or configure DNS manually.';
+        
         if (io) {
-          io.emit('ssl_install_progress', {
-            domain,
-            stage: 'updating_nginx',
-            message: 'Updating nginx configuration...'
-          });
-        }
-
-        // Update nginx configuration to use the new certificate
-        await this.updateNginxSSLConfig(domain);
-
-        if (io) {
-          io.emit('ssl_install_complete', {
+          io.emit('ssl_install_error', {
             domain,
             method: 'dns',
-            success: true,
-            message: 'SSL certificate installed successfully using DNS method'
+            error: error
           });
         }
 
-        resolve({
-          success: true,
-          method: 'dns',
-          message: 'SSL certificate installed successfully using DNS method',
-          output: stdout
-        });
+        reject(new Error(error));
 
       } catch (error) {
         console.error('DNS SSL installation error:', error);
