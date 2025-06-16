@@ -193,17 +193,17 @@ function validateDomain(domain) {
 // Execute the domain creation script automatically
 async function executeCreateDomainScript(domain) {
   return new Promise((resolve, reject) => {
-    // Create the domain creation script content inline
+    // Create the domain creation script content with proper variable handling
     const scriptContent = `#!/bin/bash
 
 DOMAIN="${domain}"
-CONFIG_FILE="/etc/nginx/sites-available/$DOMAIN"
-ENABLED_FILE="/etc/nginx/sites-enabled/$DOMAIN"
+CONFIG_FILE="/etc/nginx/sites-available/\$DOMAIN"
+ENABLED_FILE="/etc/nginx/sites-enabled/\$DOMAIN"
 
-echo "Creating nginx configuration for: $DOMAIN"
+echo "Creating nginx configuration for: \$DOMAIN"
 
 # Create nginx configuration
-cat > "$CONFIG_FILE" << 'EOF'
+cat > "\$CONFIG_FILE" << EOF
 server {
     listen 80;
     server_name ${domain};
@@ -225,23 +225,23 @@ server {
     gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss;
     
     location / {
-        try_files \\$uri \\$uri/ =404;
+        try_files \\\$uri \\\$uri/ =404;
     }
     
     # PHP processing (if needed)
-    location ~ \\.php\\$ {
+    location ~ \\\\.php\\\$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
     }
     
     # Static file caching
-    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|pdf|txt)\\$ {
+    location ~* \\\\.\\(jpg\\|jpeg\\|png\\|gif\\|ico\\|css\\|js\\|pdf\\|txt\\)\\\$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
     
     # Deny access to hidden files
-    location ~ /\\. {
+    location ~ /\\\. {
         deny all;
     }
     
@@ -251,14 +251,14 @@ server {
 }
 EOF
 
-echo "✓ Created configuration file: $CONFIG_FILE"
+echo "✓ Created configuration file: \$CONFIG_FILE"
 
 # Enable site
-if [ ! -L "$ENABLED_FILE" ]; then
-    ln -s "$CONFIG_FILE" "$ENABLED_FILE"
-    echo "✓ Enabled site: $ENABLED_FILE"
+if [ ! -L "\$ENABLED_FILE" ]; then
+    ln -s "\$CONFIG_FILE" "\$ENABLED_FILE"
+    echo "✓ Enabled site: \$ENABLED_FILE"
 else
-    echo "✓ Site already enabled: $ENABLED_FILE"
+    echo "✓ Site already enabled: \$ENABLED_FILE"
 fi
 
 # Test nginx configuration
@@ -270,10 +270,10 @@ if nginx -t; then
     echo "Reloading nginx..."
     if systemctl reload nginx; then
         echo "✓ Nginx reloaded SUCCESSFULLY"
-        echo "Domain $DOMAIN added successfully!"
+        echo "Domain \$DOMAIN added successfully!"
         echo "Document root: /var/www/html"
-        echo "Configuration: $CONFIG_FILE"
-        echo "Enabled at: $ENABLED_FILE"
+        echo "Configuration: \$CONFIG_FILE"
+        echo "Enabled at: \$ENABLED_FILE"
     else
         echo "✗ Failed to reload nginx"
         exit 1
@@ -281,7 +281,7 @@ if nginx -t; then
 else
     echo "✗ Nginx configuration test FAILED"
     echo "Removing configuration files..."
-    rm -f "$CONFIG_FILE" "$ENABLED_FILE"
+    rm -f "\$CONFIG_FILE" "\$ENABLED_FILE"
     exit 1
 fi`;
 
