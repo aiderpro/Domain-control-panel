@@ -127,7 +127,11 @@ class SSLManager {
     });
 
     this.socket.on('ssl_install_complete', (data) => {
-      this.addNotification('success', `SSL certificate installed successfully for ${data.domain}`, true);
+      if (data.method === 'dns' && data.nginxConfig) {
+        this.showDNSConfigurationModal(data);
+      } else {
+        this.addNotification('success', `SSL certificate installed successfully for ${data.domain}`, true);
+      }
       this.loadDomains();
     });
 
@@ -1851,6 +1855,90 @@ class SSLManager {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
     return Math.max(0, diffDays);
+  }
+
+  showDNSConfigurationModal(data) {
+    const modalHtml = `
+      <div class="modal fade" id="dnsConfigModal" tabindex="-1" aria-labelledby="dnsConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="dnsConfigModalLabel">
+                <i class="fas fa-certificate text-success me-2"></i>
+                SSL Certificate Created for ${data.domain}
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="alert alert-success">
+                <h6 class="alert-heading">Certificate Generated Successfully!</h6>
+                <p class="mb-0">Your SSL certificate has been created using DNS challenge. Follow the steps below to complete the setup.</p>
+              </div>
+              
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0"><i class="fas fa-list-ol me-2"></i>Manual Configuration Steps</h6>
+                </div>
+                <div class="card-body">
+                  <ol class="mb-0">
+                    ${data.instructions ? data.instructions.map(instruction => `<li>${instruction}</li>`).join('') : ''}
+                  </ol>
+                </div>
+              </div>
+              
+              <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h6 class="mb-0"><i class="fas fa-code me-2"></i>Nginx SSL Configuration</h6>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('nginxConfig').textContent)">
+                    <i class="fas fa-copy me-1"></i>Copy Config
+                  </button>
+                </div>
+                <div class="card-body">
+                  <pre id="nginxConfig" class="bg-light p-3 rounded"><code>${data.nginxConfig || ''}</code></pre>
+                </div>
+              </div>
+              
+              <div class="alert alert-info mt-3">
+                <h6 class="alert-heading">Next Steps:</h6>
+                <ul class="mb-0">
+                  <li>Copy the nginx configuration above</li>
+                  <li>Update your site's nginx configuration file in <code>/etc/nginx/sites-available/${data.domain}</code></li>
+                  <li>Test the configuration: <code>sudo nginx -t</code></li>
+                  <li>Reload nginx: <code>sudo systemctl reload nginx</code></li>
+                  <li>Refresh this page to see the SSL status update</li>
+                </ul>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-success" data-bs-dismiss="modal">
+                <i class="fas fa-check me-1"></i>Configuration Complete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Remove existing modal if present
+    const existingModal = document.getElementById('dnsConfigModal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+    
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('dnsConfigModal'));
+    modal.show();
+    
+    // Add success notification
+    this.addNotification('success', `SSL certificate created for ${data.domain}. Check configuration modal for setup instructions.`, true);
+    
+    // Clean up modal when hidden
+    document.getElementById('dnsConfigModal').addEventListener('hidden.bs.modal', function () {
+      this.remove();
+    });
   }
 }
 
