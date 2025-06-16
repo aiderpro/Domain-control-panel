@@ -2,6 +2,7 @@ const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const path = require('path');
+const CloudNSService = require('./cloudnsService');
 
 const execAsync = promisify(exec);
 
@@ -9,12 +10,64 @@ class CertbotService {
   constructor() {
     this.letsEncryptPath = '/etc/letsencrypt';
     this.nginxPath = '/etc/nginx';
+    this.cloudnsService = new CloudNSService();
+    this.methodTrackingFile = path.join(__dirname, '..', 'data', 'ssl-methods.json');
+  }
+
+  /**
+   * Save SSL installation method for domain
+   */
+  async saveSSLMethod(domain, method) {
+    try {
+      let methods = {};
+      try {
+        const data = await fs.readFile(this.methodTrackingFile, 'utf8');
+        methods = JSON.parse(data);
+      } catch (error) {
+        // File doesn't exist yet, create new object
+      }
+
+      methods[domain] = {
+        method: method,
+        installedAt: new Date().toISOString()
+      };
+
+      // Ensure data directory exists
+      await fs.mkdir(path.dirname(this.methodTrackingFile), { recursive: true });
+      await fs.writeFile(this.methodTrackingFile, JSON.stringify(methods, null, 2));
+    } catch (error) {
+      console.error('Error saving SSL method:', error);
+    }
+  }
+
+  /**
+   * Get SSL installation method for domain
+   */
+  async getSSLMethod(domain) {
+    try {
+      const data = await fs.readFile(this.methodTrackingFile, 'utf8');
+      const methods = JSON.parse(data);
+      return methods[domain]?.method || 'nginx'; // Default to nginx if not found
+    } catch (error) {
+      return 'nginx'; // Default to nginx if file doesn't exist
+    }
+  }
+
+  /**
+   * Install SSL certificate using specified method (nginx or dns)
+   */
+  async installCertificate(domain, email, method = 'nginx', io = null) {
+    if (method === 'dns') {
+      return this.installCertificateWithDNS(domain, email, io);
+    } else {
+      return this.installCertificateWithNginx(domain, email, io);
+    }
   }
 
   /**
    * Install SSL certificate using certbot with nginx verification
    */
-  async installCertificate(domain, email, io = null) {
+  async installCertificateWithNginx(domain, email, io = null) {
     return new Promise((resolve, reject) => {
       // Validate inputs
       if (!domain || !email) {
@@ -182,8 +235,12 @@ class CertbotService {
             }
           });
 
+          // Save the installation method for future renewals
+          await this.saveSSLMethod(domain, 'nginx');
+          
           resolve({
             success: true,
+            method: 'nginx',
             message: 'Certificate installed successfully',
             output,
             certPath
