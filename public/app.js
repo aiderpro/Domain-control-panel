@@ -32,7 +32,16 @@ class SSLManager {
   }
 
   initSocket() {
-    this.socket = io();
+    // Configure Socket.IO connection for both development and production
+    const socketOptions = {
+      transports: ['polling', 'websocket'],
+      upgrade: true,
+      rememberUpgrade: true,
+      timeout: 20000,
+      forceNew: false
+    };
+    
+    this.socket = io(socketOptions);
     
     this.socket.on('connect', () => {
       console.log('Connected to server');
@@ -50,8 +59,17 @@ class SSLManager {
 
     this.socket.on('connect_error', (error) => {
       console.error('Connection error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        type: error.type,
+        transport: error.transport,
+        description: error.description
+      });
       this.connectionStatus = 'error';
       this.updateConnectionStatus();
+      
+      // Add user-friendly error notification
+      this.addNotification('error', `Connection failed: ${error.message || 'Server unreachable'}. Check server status.`, true);
     });
 
     // SSL operation listeners
