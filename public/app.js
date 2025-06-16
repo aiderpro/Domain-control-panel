@@ -1124,10 +1124,32 @@ class SSLManager {
 
   async validateDomain(domain) {
     try {
-      const response = await this.api('POST', '/nginx/validate-domain', { domain });
-      return response;
+      console.log('Validating domain:', domain);
+      
+      // Test with direct fetch first to isolate the issue
+      const fetchResponse = await fetch('/api/nginx/validate-domain', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ domain })
+      });
+      
+      console.log('Fetch response status:', fetchResponse.status);
+      console.log('Fetch response ok:', fetchResponse.ok);
+      
+      if (!fetchResponse.ok) {
+        const errorText = await fetchResponse.text();
+        console.error('Fetch error response:', errorText);
+        throw new Error(`HTTP ${fetchResponse.status}: ${errorText}`);
+      }
+      
+      const result = await fetchResponse.json();
+      console.log('Validation response:', result);
+      return result;
     } catch (error) {
-      return { valid: false, error: error.response?.data?.error || error.message };
+      console.error('Validation error:', error);
+      return { valid: false, error: error.message };
     }
   }
 
