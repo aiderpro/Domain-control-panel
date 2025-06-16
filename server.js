@@ -41,7 +41,12 @@ app.use(session({
 }));
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' ? 
+    ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
+    ["http://localhost:8000", "http://127.0.0.1:8000"],
+  credentials: true
+}));
 app.use(express.json());
 
 // Authentication middleware

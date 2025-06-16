@@ -53,6 +53,16 @@ class SSLManager {
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
     
+    // Check authentication status first
+    const authStatus = await this.checkAuthentication();
+    if (!authStatus.authenticated) {
+      window.location.href = '/login.html';
+      return;
+    }
+    
+    this.isAuthenticated = true;
+    this.currentUser = authStatus.user;
+    
     // Initialize UI components in order
     this.renderApp();
     this.renderDashboard();
@@ -77,6 +87,31 @@ class SSLManager {
     
     if (!document.getElementById('domain-list-container')) {
       console.error('Dashboard container not found after waiting');
+    }
+  }
+
+  async checkAuthentication() {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/api/auth/status`, {
+        credentials: 'include'
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Authentication check failed:', error);
+      return { authenticated: false };
+    }
+  }
+
+  async logout() {
+    try {
+      await fetch(`${this.apiBaseUrl}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      window.location.href = '/login.html';
+    } catch (error) {
+      console.error('Logout failed:', error);
+      window.location.href = '/login.html';
     }
   }
 
@@ -208,7 +243,8 @@ class SSLManager {
         method,
         url: finalUrl,
         timeout: options.timeout || 60000,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        withCredentials: true
       };
       
       if (data) {
@@ -220,6 +256,12 @@ class SSLManager {
       console.log('API Response:', response.status, response.data);
       return response.data;
     } catch (error) {
+      // Handle authentication errors
+      if (error.response?.status === 401) {
+        window.location.href = '/login.html';
+        return;
+      }
+      
       console.error('API Error details:', {
         url: error.config?.url,
         method: error.config?.method,
