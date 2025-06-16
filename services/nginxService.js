@@ -291,3 +291,4 @@ class NginxService {
 }
 
 module.exports = new NginxService();
+module.exports.execAsync = execAsync;
