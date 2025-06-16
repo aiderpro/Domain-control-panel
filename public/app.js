@@ -47,7 +47,8 @@ class SSLManager {
       console.log('Connected to server');
       this.connectionStatus = 'connected';
       this.updateConnectionStatus();
-      // Load domains after successful connection
+      // Render dashboard first to create DOM structure, then load domains
+      this.renderDashboard();
       this.loadDomains();
     });
 
@@ -155,7 +156,7 @@ class SSLManager {
       console.error('Error loading domains:', error);
       this.loading = false;
       
-      // Safely show error message
+      // Try to safely show error message
       const container = document.getElementById('domain-list-container');
       if (container) {
         container.innerHTML = `
@@ -168,9 +169,20 @@ class SSLManager {
             </button>
           </div>
         `;
+      } else {
+        // If container doesn't exist, render dashboard first then retry
+        console.warn('Domain container not found, rendering dashboard and retrying...');
+        this.renderDashboard();
+        setTimeout(() => this.loadDomains(), 100);
+        return;
       }
       
-      this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
+      // Only add notification if we can safely do so
+      try {
+        this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
+      } catch (notificationError) {
+        console.error('Failed to add notification:', notificationError);
+      }
     }
   }
 
@@ -606,7 +618,10 @@ class SSLManager {
 
   renderLoading() {
     const container = document.getElementById('domain-list-container');
-    if (!container) return;
+    if (!container) {
+      console.warn('Domain list container not found, cannot show loading state');
+      return;
+    }
     
     // Only show loading spinner in the domain list container, not the entire main content
     container.innerHTML = `
