@@ -1,58 +1,76 @@
-# Upload Missing Nginx Routes to Production Server
+# Quick Fix: Update Production Server
 
-## Problem
-The `/api/nginx/validate-domain` and `/api/nginx/add-domain` routes return 404 on your production server because the `routes/nginx-config.js` file is missing.
+Your production server needs the updated domains.js file. Here's the fastest way to fix it:
 
-## Solution
-Upload the `routes/nginx-config.js` file to your production server.
+## Method 1: Direct File Replacement
 
-## Manual Upload Steps
-
-1. **Download the nginx-config.js file from this development environment:**
-   - Right-click on `routes/nginx-config.js` in the file tree
-   - Save it to your computer
-
-2. **Upload to your production server:**
-   ```bash
-   scp routes/nginx-config.js user@sitedev.eezix.com:/var/www/nginx-control-panel/routes/
-   ```
-
-3. **Restart your production server:**
+1. **SSH into your production server:**
    ```bash
    ssh user@sitedev.eezix.com
+   ```
+
+2. **Backup current file:**
+   ```bash
+   cd /var/www/nginx-control-panel/routes
+   cp domains.js domains.js.backup
+   ```
+
+3. **Replace the file content:**
+   ```bash
+   nano domains.js
+   ```
+   
+   Delete all content and paste the entire content from `production-domains.js` (the complete file I just created).
+
+4. **Restart your service:**
+   ```bash
+   # Find your current process
+   ps aux | grep node
+   
+   # Kill the old process (replace XXXX with the process ID)
+   sudo kill XXXX
+   
+   # Start the service (choose one method)
+   
+   # Option A: Direct node
    cd /var/www/nginx-control-panel
-   pm2 restart server.js
-   # OR if using systemd:
+   nohup node server.js > output.log 2>&1 &
+   
+   # Option B: PM2 (if installed)
+   pm2 start server.js --name ssl-manager
+   
+   # Option C: Systemd (if set up)
    sudo systemctl restart nginx-control-panel
    ```
 
-4. **Test the routes work:**
-   ```bash
-   curl -X POST https://sitedev.eezix.com/api/nginx/validate-domain \
-     -H "Content-Type: application/json" \
-     -d '{"domain":"test.com"}'
-   ```
-   Should return: `{"valid":true}`
+## Method 2: Complete Deployment
 
-## Alternative: Copy File Content
+If you want the full setup, use the deployment package I created earlier.
 
-If you can't upload files directly, copy the content from `routes/nginx-config.js` and create the file manually on your production server:
+## Test After Update
 
 ```bash
-ssh user@sitedev.eezix.com
-cd /var/www/nginx-control-panel/routes
-nano nginx-config.js
-# Paste the entire content from routes/nginx-config.js
-# Save and exit
+# Test domain validation (should work now)
+curl -X POST https://sitedev.eezix.com/api/domains/validate \
+     -H 'Content-Type: application/json' \
+     -d '{"domain":"test.example.com"}'
+
+# Expected response: {"valid":true,"domain":"test.example.com"}
+
+# Test domain addition
+curl -X POST https://sitedev.eezix.com/api/domains/add \
+     -H 'Content-Type: application/json' \
+     -d '{"domain":"test.example.com"}'
 ```
 
-## Routes That Will Be Added
+## Key Features Added
 
-- `POST /api/nginx/validate-domain` - Validates domain format
-- `POST /api/nginx/add-domain` - Adds new domain to nginx
-- `GET /api/nginx/test-config` - Tests nginx configuration
-- `POST /api/nginx/reload-config` - Reloads nginx configuration
+The updated domains.js includes:
+- `POST /api/domains/validate` - Domain validation
+- `POST /api/domains/add` - Automated nginx configuration creation
+- Automatic nginx testing with `nginx -t`
+- Automatic nginx reloading with `systemctl reload nginx`
+- Document root set to `/var/www/html`
+- Full error handling and logging
 
-## Verification
-
-After uploading and restarting, the domain addition feature should work correctly in the frontend.
+Once you update this file and restart your service, domain addition will work through the web interface.
