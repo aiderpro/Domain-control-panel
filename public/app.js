@@ -9,8 +9,9 @@ class SSLManager {
     this.notifications = [];
     this.loading = false;
     this.connectionStatus = 'connecting';
-    this.activeTab = 'domains'; // 'domains' or 'autorenewal'
+    this.activeTab = 'domains'; // 'domains', 'autorenewal', or 'settings'
     this.autorenewalData = null;
+    this.cloudnsStatus = null;
     
     // API Base URL configuration
     this.apiBaseUrl = this.getApiBaseUrl();

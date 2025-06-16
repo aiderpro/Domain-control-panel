@@ -8,6 +8,7 @@ const domainsRoutes = require('./routes/domains');
 const sslRoutes = require('./routes/ssl');
 const nginxConfigRoutes = require('./routes/nginx-config');
 const autorenewalRoutes = require('./routes/autorenewal');
+const cloudnsConfigRoutes = require('./routes/cloudns-config');
 
 const app = express();
 const server = http.createServer(app);
@@ -39,6 +40,7 @@ app.use('/api/domains', domainsRoutes);
 app.use('/api/ssl', sslRoutes);
 app.use('/api/nginx', nginxConfigRoutes);
 app.use('/api/autorenewal', autorenewalRoutes);
+app.use('/api/cloudns', cloudnsConfigRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
