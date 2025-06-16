@@ -139,6 +139,8 @@ Changelog:
 - June 16, 2025: Created comprehensive CloudNS API integration for DNS challenges
 - June 16, 2025: Implemented fully automated nginx method with complete SSL installation and configuration
 - June 16, 2025: DNS method configured for manual certificate creation with automated nginx configuration post-install
+- June 16, 2025: Fixed acme.sh email validation error by ensuring proper email format with domain
+- June 16, 2025: Corrected CloudNS API credential passing using environment variables for acme.sh
 ```
 
 ## User Preferences

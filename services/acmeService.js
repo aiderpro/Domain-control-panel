@@ -54,8 +54,9 @@ class AcmeService {
       const authId = config.SUB_AUTH_ID || config.AUTH_ID;
       const authPassword = config.AUTH_PASSWORD;
       
-      await execAsync(`export CX_User="${authId}"`);
-      await execAsync(`export CX_Key="${authPassword}"`);
+      // Set environment variables properly for the current process
+      process.env.CX_User = authId;
+      process.env.CX_Key = authPassword;
       
       return true;
     } catch (error) {
@@ -101,17 +102,15 @@ class AcmeService {
         // Create certificate directory
         await execAsync(`sudo mkdir -p ${this.certDir}/${domain}`);
 
-        // Issue certificate using CloudNS DNS API
-        const acmeCommand = [
-          'acme.sh',
-          '--issue',
-          '--dns', 'dns_cx', // CloudNS DNS API
-          '-d', domain,
-          '--cert-file', `${this.certDir}/${domain}/cert.pem`,
-          '--key-file', `${this.certDir}/${domain}/key.pem`,
-          '--fullchain-file', `${this.certDir}/${domain}/fullchain.pem`,
-          '--reloadcmd', '"systemctl reload nginx"'
-        ].join(' ');
+        // Use a proper email format for Let's Encrypt registration
+        const registrationEmail = email && email.includes('.') ? email : `admin@${domain}`;
+        
+        // Get CloudNS credentials from environment
+        const authId = process.env.CX_User;
+        const authPassword = process.env.CX_Key;
+        
+        // Issue certificate using CloudNS DNS API with environment variables
+        const acmeCommand = `CX_User="${authId}" CX_Key="${authPassword}" acme.sh --issue --dns dns_cx -d ${domain} --accountemail ${registrationEmail} --cert-file ${this.certDir}/${domain}/cert.pem --key-file ${this.certDir}/${domain}/key.pem --fullchain-file ${this.certDir}/${domain}/fullchain.pem --reloadcmd "systemctl reload nginx" --debug`;
 
         const { stdout, stderr } = await execAsync(acmeCommand);
         
