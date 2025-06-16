@@ -8,8 +8,8 @@ class NginxConfigManager {
   constructor() {
     this.sitesAvailable = process.env.NGINX_SITES_PATH || '/etc/nginx/sites-available';
     this.sitesEnabled = '/etc/nginx/sites-enabled';
-    // Use different document root for development vs production
-    this.documentRoot = process.env.NODE_ENV === 'production' ? '/var/www/html' : './public/domains';
+    // Always use /var/www/html as document root for nginx configs
+    this.documentRoot = '/var/www/html';
   }
 
   /**
@@ -243,13 +243,26 @@ class NginxConfigManager {
    * Ensure document root directory exists
    */
   async ensureDocumentRoot() {
-    // In development, simulate document root creation
+    // In development, simulate document root creation since /var/www/html doesn't exist
     if (process.env.NODE_ENV !== 'production') {
-      return { 
-        success: true, 
-        path: this.documentRoot,
-        simulated: true 
-      };
+      // Create a local simulation directory to demonstrate functionality
+      const localDocRoot = './public/html';
+      try {
+        await fs.mkdir(localDocRoot, { recursive: true });
+        return { 
+          success: true, 
+          path: this.documentRoot, // Still report /var/www/html as the target
+          localPath: localDocRoot,
+          simulated: true 
+        };
+      } catch (error) {
+        return { 
+          success: true, 
+          path: this.documentRoot,
+          simulated: true,
+          note: 'Simulated in development environment'
+        };
+      }
     }
     
     try {
