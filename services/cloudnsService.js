@@ -204,47 +204,24 @@ class CloudNSService {
           });
         }
 
-        // Create the certificate using DNS challenge
-        await this.createCertificateWithDNS(domain, email, io);
+        // DNS method requires manual certificate creation with certbot
+        const error = 'DNS SSL installation requires manual certificate creation with certbot. Use nginx method for automated installation, or run: sudo certbot certonly --manual --preferred-challenges=dns -d ' + domain;
         
         if (io) {
-          io.emit('ssl_install_progress', {
-            domain,
-            stage: 'nginx_update',
-            message: 'Updating nginx configuration automatically...'
-          });
-        }
-
-        // Automatically update nginx configuration
-        await this.updateNginxSSLConfig(domain);
-        
-        if (io) {
-          io.emit('ssl_install_progress', {
-            domain,
-            stage: 'nginx_test',
-            message: 'Testing nginx configuration...'
-          });
-        }
-
-        // Test and reload nginx
-        await this.testAndReloadNginx(domain, io);
-        
-        if (io) {
-          io.emit('ssl_install_complete', {
+          io.emit('ssl_install_error', {
             domain,
             method: 'dns',
-            success: true,
-            message: 'SSL certificate installed successfully with automated nginx configuration.'
+            error: error,
+            manual_steps: [
+              '1. Run: sudo certbot certonly --manual --preferred-challenges=dns -d ' + domain,
+              '2. Follow prompts to create DNS TXT record in CloudNS',
+              '3. Certificate will be created in /etc/letsencrypt/live/' + domain + '/',
+              '4. Use nginx method for automated configuration updates'
+            ]
           });
         }
 
-        resolve({
-          success: true,
-          method: 'dns',
-          message: 'SSL certificate installed successfully with automated nginx configuration.',
-          certificatePath: `/etc/letsencrypt/live/${domain}/fullchain.pem`,
-          keyPath: `/etc/letsencrypt/live/${domain}/privkey.pem`
-        });
+        reject(new Error(error));
 
       } catch (error) {
         console.error('DNS SSL installation error:', error);
@@ -271,22 +248,46 @@ class CloudNSService {
         io.emit('ssl_install_progress', {
           domain,
           stage: 'certificate_creation',
-          message: 'Creating SSL certificate with DNS challenge...'
+          message: 'DNS method requires manual certificate creation. Simulating for demo...'
         });
       }
 
-      // Simulate certificate creation for demo
-      // In production, this would run: certbot certonly --manual --preferred-challenges=dns
-      setTimeout(() => {
-        if (io) {
-          io.emit('ssl_install_progress', {
-            domain,
-            stage: 'dns_verification',
-            message: 'DNS challenge completed. Certificate generated.'
-          });
+      // Note: Real DNS certificate creation would require:
+      // 1. certbot certonly --manual --preferred-challenges=dns -d domain.com
+      // 2. Manual DNS TXT record creation when prompted
+      // 3. Certificate files created in /etc/letsencrypt/live/domain.com/
+      
+      // For demo purposes, we'll create placeholder certificate files
+      setTimeout(async () => {
+        try {
+          const certDir = `/etc/letsencrypt/live/${domain}`;
+          const placeholderCert = `# Placeholder certificate for ${domain}\n# In production, this would be a real Let's Encrypt certificate`;
+          
+          // Create certificate directory and placeholder files
+          await execAsync(`sudo mkdir -p ${certDir}`);
+          await execAsync(`echo '${placeholderCert}' | sudo tee ${certDir}/fullchain.pem`);
+          await execAsync(`echo '${placeholderCert}' | sudo tee ${certDir}/privkey.pem`);
+          await execAsync(`sudo chmod 644 ${certDir}/fullchain.pem ${certDir}/privkey.pem`);
+          
+          if (io) {
+            io.emit('ssl_install_progress', {
+              domain,
+              stage: 'dns_verification',
+              message: 'Demo certificate files created. In production, use real certbot with DNS challenge.'
+            });
+          }
+          resolve();
+        } catch (error) {
+          if (io) {
+            io.emit('ssl_install_progress', {
+              domain,
+              stage: 'certificate_error',
+              message: `Certificate creation failed: ${error.message}`
+            });
+          }
+          reject(error);
         }
-        resolve();
-      }, 3000);
+      }, 2000);
     });
   }
 

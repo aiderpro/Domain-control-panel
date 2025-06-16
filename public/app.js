@@ -905,12 +905,12 @@ class SSLManager {
                         <div class="mb-3">
                           <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
                           <select id="ssl-method-${domain.domain}" class="form-select">
-                            <option value="nginx" selected>Nginx Method (Recommended)</option>
-                            <option value="dns">DNS Method (CloudNS) - Automated</option>
+                            <option value="nginx" selected>Nginx Method (Fully Automated)</option>
+                            <option value="dns">DNS Method (Manual Certificate + Auto Config)</option>
                           </select>
                           <div class="form-text">
-                            <strong>Nginx:</strong> Web server verification with automatic configuration<br>
-                            <strong>DNS:</strong> DNS challenge with automated nginx setup (requires CloudNS)
+                            <strong>Nginx:</strong> Complete automation - web server verification and configuration<br>
+                            <strong>DNS:</strong> Manual certbot certificate creation, then automated nginx setup
                           </div>
                         </div>
                       </div>

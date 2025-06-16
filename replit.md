@@ -137,6 +137,8 @@ Changelog:
 - June 16, 2025: Added CloudNS DNS method for SSL installation with dropdown selection
 - June 16, 2025: Implemented method tracking for renewals (nginx/DNS methods preserved)
 - June 16, 2025: Created comprehensive CloudNS API integration for DNS challenges
+- June 16, 2025: Implemented fully automated nginx method with complete SSL installation and configuration
+- June 16, 2025: DNS method configured for manual certificate creation with automated nginx configuration post-install
 ```
 
 ## User Preferences
