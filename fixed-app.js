@@ -148,6 +148,16 @@ class SSLManager {
     this.socket.on('domain_add_error', (data) => {
       this.addNotification('error', `Failed to add domain ${data.domain}: ${data.error}`, true);
     });
+
+    // Domain deletion listeners
+    this.socket.on('domain_deleted', (data) => {
+      this.addNotification('success', `Domain ${data.domain} deleted successfully`, true);
+      this.loadDomains();
+    });
+
+    this.socket.on('domain_delete_error', (data) => {
+      this.addNotification('error', `Failed to delete domain ${data.domain}: ${data.error}`, true);
+    });
   }
 
   async api(method, url, data = null) {
@@ -873,6 +883,9 @@ class SSLManager {
                   <i class="fas fa-sync-alt me-1"></i> Renew Certificate
                 </button>
               `}
+              <button class="btn btn-danger" onclick="sslManager.deleteDomain('${domain.domain}')">
+                <i class="fas fa-trash me-1"></i> Delete Domain
+              </button>
             </div>
           </div>
 
@@ -934,19 +947,22 @@ class SSLManager {
   renderCertificateActions(domain) {
     const ssl = domain.ssl;
     
-    if (!ssl?.hasSSL) {
-      return `
-        <button class="btn btn-success btn-sm" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')">
-          <i class="fas fa-plus me-1"></i> Install SSL
+    return `
+      <div class="btn-group" role="group">
+        ${!ssl?.hasSSL ? `
+          <button class="btn btn-success btn-sm" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')" title="Install SSL Certificate">
+            <i class="fas fa-plus me-1"></i> Install SSL
+          </button>
+        ` : `
+          <button class="btn btn-warning btn-sm" onclick="event.stopPropagation(); sslManager.renewSSL('${domain.domain}')" title="Renew SSL Certificate">
+            <i class="fas fa-sync-alt me-1"></i> Renew
+          </button>
+        `}
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); sslManager.deleteDomain('${domain.domain}')" title="Delete Domain">
+          <i class="fas fa-trash me-1"></i> Delete
         </button>
-      `;
-    } else {
-      return `
-        <button class="btn btn-warning btn-sm" onclick="event.stopPropagation(); sslManager.renewSSL('${domain.domain}')">
-          <i class="fas fa-sync-alt me-1"></i> Renew
-        </button>
-      `;
-    }
+      </div>
+    `;
   }
 
   toggleInstallForm(domain) {
@@ -1091,6 +1107,45 @@ class SSLManager {
     } catch (error) {
       console.error('Domain addition error:', error);
       this.addNotification('error', `Domain addition failed: ${error.message}`, true);
+    }
+  }
+
+  async deleteDomain(domain) {
+    // Show confirmation dialog
+    const confirmed = confirm(
+      `Are you sure you want to delete "${domain}"?\n\n` +
+      `This will permanently remove:\n` +
+      `• Nginx configuration files\n` +
+      `• SSL certificates\n` +
+      `• All associated data\n\n` +
+      `This action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      this.addNotification('info', `Deleting domain ${domain}...`, false);
+      
+      const response = await this.api('DELETE', `/domains/delete/${domain}`);
+      
+      if (response.success) {
+        this.addNotification('success', `Domain ${domain} deleted successfully`, true);
+        
+        // Clear selected domain if it was the deleted one
+        if (this.selectedDomain?.domain === domain) {
+          this.selectedDomain = null;
+        }
+        
+        // Refresh domain list
+        await this.loadDomains();
+      } else {
+        this.addNotification('error', `Failed to delete domain: ${response.error}`, true);
+      }
+    } catch (error) {
+      console.error('Domain deletion error:', error);
+      this.addNotification('error', `Domain deletion failed: ${error.message}`, true);
     }
   }
 

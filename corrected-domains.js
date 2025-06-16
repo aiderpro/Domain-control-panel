@@ -173,6 +173,57 @@ router.post('/validate', (req, res) => {
   res.json(validation);
 });
 
+// Delete domain endpoint - removes nginx configuration and SSL certificates
+router.delete('/delete/:domain', async (req, res) => {
+  const domain = req.params.domain;
+  
+  if (!domain) {
+    return res.status(400).json({
+      success: false,
+      error: 'Domain is required'
+    });
+  }
+
+  try {
+    console.log(`Deleting domain configuration for: ${domain}`);
+    
+    // Delete nginx configuration and SSL certificates
+    await deleteDomainAndSSL(domain);
+    
+    console.log(`Domain ${domain} successfully deleted`);
+    
+    if (req.io) {
+      req.io.emit('domain_deleted', { domain, success: true });
+    }
+    
+    res.json({
+      success: true,
+      message: `Domain ${domain} deleted successfully`,
+      domain: domain,
+      deletedFiles: [
+        `/etc/nginx/sites-available/${domain}`,
+        `/etc/nginx/sites-enabled/${domain}`,
+        `/etc/letsencrypt/live/${domain}`,
+        `/etc/letsencrypt/renewal/${domain}.conf`
+      ],
+      nginxTested: true,
+      nginxReloaded: true
+    });
+  } catch (error) {
+    console.error(`Error deleting domain ${domain}:`, error.message);
+    
+    if (req.io) {
+      req.io.emit('domain_delete_error', { domain, error: error.message });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete domain',
+      message: error.message
+    });
+  }
+});
+
 // Add domain endpoint - creates nginx configuration directly
 router.post('/add', async (req, res) => {
   const { domain } = req.body;
@@ -365,6 +416,94 @@ function reloadNginx() {
     exec('systemctl reload nginx', (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`Nginx reload failed: ${stderr}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+// Delete domain configuration and SSL certificates
+async function deleteDomainAndSSL(domain) {
+  const configPath = `/etc/nginx/sites-available/${domain}`;
+  const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
+  const sslCertPath = `/etc/letsencrypt/live/${domain}`;
+  const sslRenewalPath = `/etc/letsencrypt/renewal/${domain}.conf`;
+  
+  const deletedFiles = [];
+  const errors = [];
+  
+  try {
+    // 1. Remove nginx sites-enabled symlink
+    try {
+      await fs.access(enabledPath);
+      await fs.unlink(enabledPath);
+      deletedFiles.push(enabledPath);
+      console.log(`✓ Removed enabled site: ${enabledPath}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        errors.push(`Failed to remove enabled site: ${error.message}`);
+      }
+    }
+    
+    // 2. Remove nginx sites-available configuration
+    try {
+      await fs.access(configPath);
+      await fs.unlink(configPath);
+      deletedFiles.push(configPath);
+      console.log(`✓ Removed configuration file: ${configPath}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        errors.push(`Failed to remove config file: ${error.message}`);
+      }
+    }
+    
+    // 3. Remove SSL certificate using certbot (safer than manual deletion)
+    try {
+      await removeCertbotCertificate(domain);
+      deletedFiles.push(sslCertPath);
+      deletedFiles.push(sslRenewalPath);
+      console.log(`✓ Removed SSL certificate for: ${domain}`);
+    } catch (error) {
+      // SSL removal is optional - domain might not have SSL
+      console.log(`⚠ SSL certificate removal: ${error.message}`);
+    }
+    
+    // 4. Test nginx configuration
+    await testNginxConfig();
+    console.log(`✓ Nginx configuration test passed after deletion`);
+    
+    // 5. Reload nginx
+    await reloadNginx();
+    console.log(`✓ Nginx reloaded successfully after deletion`);
+    
+    if (errors.length > 0) {
+      throw new Error(`Partial deletion completed with errors: ${errors.join(', ')}`);
+    }
+    
+    return {
+      success: true,
+      deletedFiles: deletedFiles,
+      message: `Successfully deleted domain ${domain} and associated files`
+    };
+    
+  } catch (error) {
+    throw new Error(`Domain deletion failed: ${error.message}`);
+  }
+}
+
+// Remove SSL certificate using certbot
+function removeCertbotCertificate(domain) {
+  return new Promise((resolve, reject) => {
+    // Use certbot delete command which safely removes certificates
+    exec(`certbot delete --cert-name ${domain} --non-interactive`, (error, stdout, stderr) => {
+      if (error) {
+        // Check if certificate doesn't exist (not an error)
+        if (stderr.includes('No certificate found') || stderr.includes('not found')) {
+          resolve(`No SSL certificate found for ${domain}`);
+        } else {
+          reject(new Error(`Certbot delete failed: ${stderr}`));
+        }
       } else {
         resolve(stdout);
       }
