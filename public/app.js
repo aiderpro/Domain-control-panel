@@ -314,9 +314,26 @@ class SSLManager {
 
   async refreshDomains() {
     try {
-      await this.api('POST', '/domains/refresh');
-      this.addNotification('info', 'Domain refresh initiated...', false);
+      console.log('Refreshing domains...');
+      
+      // Update the refresh button to show loading state
+      const refreshBtn = document.querySelector('button[onclick="sslManager.refreshDomains()"]');
+      if (refreshBtn) {
+        const originalHTML = refreshBtn.innerHTML;
+        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Refreshing...';
+        refreshBtn.disabled = true;
+        
+        // Restore button after operation
+        setTimeout(() => {
+          refreshBtn.innerHTML = originalHTML;
+          refreshBtn.disabled = false;
+        }, 2000);
+      }
+      
+      await this.loadDomains();
+      this.addNotification('success', 'Domains refreshed successfully', false);
     } catch (error) {
+      console.error('Error refreshing domains:', error);
       this.addNotification('error', 'Failed to refresh domains: ' + error.message, true);
     }
   }
@@ -679,10 +696,8 @@ class SSLManager {
     const container = document.getElementById('domain-list-container');
     if (!container) return;
     
-    // If still loading, don't render anything - let renderLoading handle it
-    if (this.loading) {
-      return;
-    }
+    // Force loading to false to prevent stuck loader
+    this.loading = false;
     
     if (this.domains.length === 0) {
       container.innerHTML = `
@@ -1284,14 +1299,45 @@ class SSLManager {
 
   formatExpiryDate(ssl) {
     if (!ssl || !ssl.hasSSL || !ssl.expiryDate) return 'N/A';
-    const date = new Date(ssl.expiryDate);
-    return date.toLocaleDateString();
+    try {
+      const date = new Date(ssl.expiryDate);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    } catch (error) {
+      console.error('Error formatting expiry date:', error);
+      return 'N/A';
+    }
   }
 
   getDaysUntilExpiry(ssl) {
-    if (!ssl || !ssl.hasSSL || ssl.daysUntilExpiry === undefined) return 'N/A';
-    if (ssl.daysUntilExpiry <= 0) return 'Expired';
-    return `${ssl.daysUntilExpiry} days`;
+    if (!ssl || !ssl.hasSSL) return 'N/A';
+    
+    // Check if daysUntilExpiry is provided
+    if (ssl.daysUntilExpiry !== undefined) {
+      if (ssl.daysUntilExpiry <= 0) return 'Expired';
+      return `${ssl.daysUntilExpiry} days`;
+    }
+    
+    // Calculate days if expiryDate is available
+    if (ssl.expiryDate) {
+      try {
+        const expiryDate = new Date(ssl.expiryDate);
+        const today = new Date();
+        const diffTime = expiryDate - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays <= 0) return 'Expired';
+        return `${diffDays} days`;
+      } catch (error) {
+        console.error('Error calculating days until expiry:', error);
+      }
+    }
+    
+    return 'N/A';
   }
 }
 
