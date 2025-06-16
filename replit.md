@@ -122,6 +122,9 @@ Changelog:
 - June 16, 2025: Fixed SSL certificate name mismatch by improving certbot nginx integration
 - June 16, 2025: Added automated server update process via GitHub integration
 - June 16, 2025: Enhanced error handling and nginx configuration verification
+- June 16, 2025: Fixed domain addition 404 errors by correcting frontend API endpoint paths
+- June 16, 2025: Resolved loader stuck issue by improving loading state management
+- June 16, 2025: Updated document root configuration to use /var/www/html for all domains
 ```
 
 ## User Preferences

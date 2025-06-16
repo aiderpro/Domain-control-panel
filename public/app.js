@@ -142,13 +142,15 @@ class SSLManager {
       
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
+      
+      // Set loading to false BEFORE rendering
+      this.loading = false;
+      
       this.applyFiltersAndSort();
       this.updateStats();
       this.renderDomainList();
       this.renderSSLPanel();
       
-      // Ensure loading is set to false after successful load
-      this.loading = false;
     } catch (error) {
       console.error('Error loading domains:', error);
       this.loading = false;
@@ -603,21 +605,18 @@ class SSLManager {
   }
 
   renderLoading() {
-    const mainContent = document.getElementById('main-content');
-    if (!mainContent) return;
+    const container = document.getElementById('domain-list-container');
+    if (!container) return;
     
-    if (this.connectionStatus === 'connected') {
-      this.renderDashboard();
-    } else {
-      mainContent.innerHTML = `
-        <div class="text-center py-5">
-          <div class="spinner-border text-primary mb-3" role="status">
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <h4 class="text-muted">Loading domains...</h4>
+    // Only show loading spinner in the domain list container, not the entire main content
+    container.innerHTML = `
+      <div class="text-center py-5">
+        <div class="spinner-border text-primary mb-3" role="status">
+          <span class="visually-hidden">Loading...</span>
         </div>
-      `;
-    }
+        <h4 class="text-muted">Loading domains...</h4>
+      </div>
+    `;
   }
 
   safeSetContent(elementId, content) {
@@ -640,6 +639,12 @@ class SSLManager {
 
   renderDomainList() {
     const container = document.getElementById('domain-list-container');
+    if (!container) return;
+    
+    // If still loading, don't render anything - let renderLoading handle it
+    if (this.loading) {
+      return;
+    }
     
     if (this.domains.length === 0) {
       container.innerHTML = `
