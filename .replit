@@ -1,0 +1,27 @@
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Install Dependencies"
+
+[[workflows.workflow]]
+name = "Install Dependencies"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm install express cors socket.io axios react react-dom react-scripts"
+
+[deployment]
+run = ["sh", "-c", "npm install express cors socket.io axios react react-dom react-scripts"]

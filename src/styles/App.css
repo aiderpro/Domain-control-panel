@@ -1,0 +1,317 @@
+/* Custom CSS for SSL Certificate Manager */
+
+/* Base styles */
+.App {
+  min-height: 100vh;
+  background-color: #f8f9fa;
+}
+
+/* Cursor styles */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Notification container */
+.notification-container {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 1050;
+  max-width: 400px;
+}
+
+.notification-container .alert {
+  margin-bottom: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: none;
+}
+
+/* Domain list enhancements */
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 123, 255, 0.05);
+}
+
+.table tbody tr.table-active {
+  background-color: rgba(0, 123, 255, 0.1);
+  border-left: 4px solid #007bff;
+}
+
+/* SSL status indicators */
+.ssl-status-valid {
+  color: #198754;
+}
+
+.ssl-status-warning {
+  color: #fd7e14;
+}
+
+.ssl-status-danger {
+  color: #dc3545;
+}
+
+.ssl-status-muted {
+  color: #6c757d;
+}
+
+/* Card enhancements */
+.card {
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+  background-color: #fff;
+  border-bottom: 1px solid #dee2e6;
+  font-weight: 600;
+}
+
+/* Button enhancements */
+.btn {
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+/* Badge enhancements */
+.badge {
+  font-weight: 500;
+  padding: 0.5em 0.75em;
+}
+
+/* Loading states */
+.loading-overlay {
+  position: relative;
+}
+
+.loading-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 10;
+}
+
+.loading-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+}
+
+/* Stats cards */
+.stats-card {
+  transition: transform 0.2s ease-in-out;
+}
+
+.stats-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Footer styles */
+footer {
+  margin-top: auto;
+  border-top: 1px solid #dee2e6;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .notification-container {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .table-responsive {
+    border: none;
+  }
+  
+  .table-responsive table {
+    margin-bottom: 0;
+  }
+  
+  /* Stack cards on mobile */
+  .card {
+    margin-bottom: 1rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .btn {
+    font-size: 0.875rem;
+  }
+  
+  .card-header h6,
+  .card-header h5 {
+    font-size: 1rem;
+  }
+  
+  /* Make badges smaller on mobile */
+  .badge {
+    font-size: 0.75em;
+    padding: 0.375em 0.5em;
+  }
+  
+  /* Adjust table text size */
+  .table {
+    font-size: 0.875rem;
+  }
+  
+  .table td,
+  .table th {
+    padding: 0.5rem 0.25rem;
+  }
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Status-specific styles */
+.status-expired {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.status-expiring {
+  background-color: #fff3cd;
+  border-color: #ffeaa7;
+  color: #856404;
+}
+
+.status-valid {
+  background-color: #d1edff;
+  border-color: #b8daff;
+  color: #004085;
+}
+
+/* Custom scrollbar */
+.table-responsive::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Form enhancements */
+.form-control:focus {
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.form-label {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+/* Alert enhancements */
+.alert {
+  border: none;
+  border-radius: 8px;
+}
+
+.alert-dismissible .btn-close {
+  padding: 0.75rem 0.75rem;
+}
+
+/* Icon spacing */
+.fas + span,
+.far + span {
+  margin-left: 0.25rem;
+}
+
+/* Monospace font for technical details */
+.font-monospace {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 0.875em;
+}
+
+/* Loading states for buttons */
+.btn .fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Utility classes */
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.border-start-primary {
+  border-left: 4px solid #007bff !important;
+}
+
+.border-start-success {
+  border-left: 4px solid #198754 !important;
+}
+
+.border-start-warning {
+  border-left: 4px solid #ffc107 !important;
+}
+
+.border-start-danger {
+  border-left: 4px solid #dc3545 !important;
+}
+
+/* Print styles */
+@media print {
+  .btn,
+  .alert-dismissible .btn-close,
+  .notification-container {
+    display: none !important;
+  }
+  
+  .card {
+    break-inside: avoid;
+  }
+  
+  .table {
+    font-size: 0.75rem;
+  }
+}

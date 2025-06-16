@@ -1,0 +1,70 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const domainsRoutes = require('./routes/domains');
+const sslRoutes = require('./routes/ssl');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+const PORT = process.env.PORT || 8000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'build')));
+
+// Make io available to routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// Routes
+app.use('/api/domains', domainsRoutes);
+app.use('/api/ssl', sslRoutes);
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Serve React app for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message,
+    timestamp: new Date().toISOString()
+  });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+module.exports = { app, io };
