@@ -12,6 +12,8 @@ class SSLManager {
     this.activeTab = 'domains'; // 'domains', 'autorenewal', or 'settings'
     this.autorenewalData = null;
     this.cloudnsStatus = null;
+    this.isAuthenticated = false;
+    this.currentUser = null;
     
     // API Base URL configuration
     this.apiBaseUrl = this.getApiBaseUrl();
