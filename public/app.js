@@ -40,7 +40,9 @@ class SSLManager {
     this.renderApp();
     this.bindEvents();
     this.initSocket();
-    // Don't load domains immediately - wait for socket connection
+    // Load domains immediately, don't wait for socket connection
+    this.renderDashboard();
+    this.loadDomains();
   }
 
   initSocket() {
@@ -59,9 +61,6 @@ class SSLManager {
       console.log('Connected to server');
       this.connectionStatus = 'connected';
       this.updateConnectionStatus();
-      // Render dashboard first to create DOM structure, then load domains
-      this.renderDashboard();
-      this.loadDomains();
     });
 
     this.socket.on('disconnect', () => {
@@ -1282,58 +1281,94 @@ class SSLManager {
   }
 
   getSSLStatusBadge(ssl) {
-    if (!ssl) return '<span class="badge bg-secondary">Unknown</span>';
-    if (ssl.status === 'error') return '<span class="badge bg-danger">Error</span>';
-    if (!ssl.hasSSL) return '<span class="badge bg-warning">No SSL</span>';
-    if (ssl.isExpired) return '<span class="badge bg-danger">Expired</span>';
-    if (ssl.isExpiringSoon) return '<span class="badge bg-warning">Expiring Soon</span>';
-    return '<span class="badge bg-success">Valid</span>';
+    if (!ssl) return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>Unknown</span>';
+    
+    // Handle different SSL status formats from production server
+    if (ssl.status === 'error') return '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Error</span>';
+    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found') {
+      return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>No SSL</span>';
+    }
+    
+    // Check if SSL is active
+    if (ssl.status === 'active' && ssl.hasSSL) {
+      if (ssl.isExpired) return '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Expired</span>';
+      if (ssl.isExpiringSoon) return '<span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Expiring Soon</span>';
+      return '<span class="badge bg-success"><i class="fas fa-shield-alt me-1"></i>Active SSL</span>';
+    }
+    
+    if (!ssl.hasSSL) return '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>No SSL</span>';
+    return '<span class="badge bg-secondary"><i class="fas fa-question me-1"></i>Unknown</span>';
   }
 
   getSSLIcon(ssl) {
-    if (!ssl || !ssl.hasSSL) return '<i class="fas fa-unlock text-muted"></i>';
-    if (ssl.isExpired) return '<i class="fas fa-times-circle text-danger"></i>';
-    if (ssl.isExpiringSoon) return '<i class="fas fa-exclamation-triangle text-warning"></i>';
-    return '<i class="fas fa-shield-alt text-success"></i>';
+    if (!ssl) return '<i class="fas fa-unlock text-muted"></i>';
+    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
+      return '<i class="fas fa-unlock text-muted"></i>';
+    }
+    if (ssl.status === 'active' && ssl.hasSSL) {
+      if (ssl.isExpired) return '<i class="fas fa-times-circle text-danger"></i>';
+      if (ssl.isExpiringSoon) return '<i class="fas fa-exclamation-triangle text-warning"></i>';
+      return '<i class="fas fa-shield-alt text-success"></i>';
+    }
+    return '<i class="fas fa-unlock text-muted"></i>';
   }
 
   formatExpiryDate(ssl) {
-    if (!ssl || !ssl.hasSSL || !ssl.expiryDate) return 'N/A';
-    try {
-      const date = new Date(ssl.expiryDate);
-      if (isNaN(date.getTime())) return 'Invalid Date';
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-      });
-    } catch (error) {
-      console.error('Error formatting expiry date:', error);
+    if (!ssl) return 'N/A';
+    
+    // Check if SSL is not active
+    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
       return 'N/A';
     }
+    
+    // Only show expiry date for active SSL certificates
+    if (ssl.status === 'active' && ssl.hasSSL && ssl.expiryDate) {
+      try {
+        const date = new Date(ssl.expiryDate);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric' 
+        });
+      } catch (error) {
+        console.error('Error formatting expiry date:', error);
+        return 'Invalid Date';
+      }
+    }
+    
+    return 'N/A';
   }
 
   getDaysUntilExpiry(ssl) {
-    if (!ssl || !ssl.hasSSL) return 'N/A';
+    if (!ssl) return 'N/A';
     
-    // Check if daysUntilExpiry is provided
-    if (ssl.daysUntilExpiry !== undefined) {
-      if (ssl.daysUntilExpiry <= 0) return 'Expired';
-      return `${ssl.daysUntilExpiry} days`;
+    // Check if SSL is not active
+    if (ssl.status === 'no_ssl' || ssl.message === 'No SSL certificate found' || !ssl.hasSSL) {
+      return 'N/A';
     }
     
-    // Calculate days if expiryDate is available
-    if (ssl.expiryDate) {
-      try {
-        const expiryDate = new Date(ssl.expiryDate);
-        const today = new Date();
-        const diffTime = expiryDate - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        if (diffDays <= 0) return 'Expired';
-        return `${diffDays} days`;
-      } catch (error) {
-        console.error('Error calculating days until expiry:', error);
+    // Only show days for active SSL certificates
+    if (ssl.status === 'active' && ssl.hasSSL) {
+      // Check if daysUntilExpiry is provided
+      if (ssl.daysUntilExpiry !== undefined) {
+        if (ssl.daysUntilExpiry <= 0) return 'Expired';
+        return `${ssl.daysUntilExpiry} days`;
+      }
+      
+      // Calculate days if expiryDate is available
+      if (ssl.expiryDate) {
+        try {
+          const expiryDate = new Date(ssl.expiryDate);
+          const today = new Date();
+          const diffTime = expiryDate - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (diffDays <= 0) return 'Expired';
+          return `${diffDays} days`;
+        } catch (error) {
+          console.error('Error calculating days until expiry:', error);
+        }
       }
     }
     
