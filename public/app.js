@@ -269,15 +269,20 @@ class SSLManager {
       d.ssl?.hasSSL && d.ssl?.isExpired
     ).length;
 
-    document.getElementById('stat-total').textContent = total;
-    document.getElementById('stat-ssl').textContent = withSSL;
-    document.getElementById('stat-expiring').textContent = expiringSoon;
-    document.getElementById('stat-expired').textContent = expired;
+    const statTotal = document.getElementById('stat-total');
+    const statSSL = document.getElementById('stat-ssl');
+    const statExpiring = document.getElementById('stat-expiring');
+    const statExpired = document.getElementById('stat-expired');
+    
+    if (statTotal) statTotal.textContent = total;
+    if (statSSL) statSSL.textContent = withSSL;
+    if (statExpiring) statExpiring.textContent = expiringSoon;
+    if (statExpired) statExpired.textContent = expired;
     
     // Update filtered stats
-    if (document.getElementById('filtered-stats')) {
-      document.getElementById('filtered-stats').innerHTML = 
-        `Showing ${this.filteredDomains.length} of ${total} domains`;
+    const filteredStats = document.getElementById('filtered-stats');
+    if (filteredStats) {
+      filteredStats.innerHTML = `Showing ${this.filteredDomains.length} of ${total} domains`;
     }
   }
 
@@ -473,16 +478,10 @@ class SSLManager {
                 <i class="fas fa-list me-2"></i>
                 Domains
               </h5>
-              <div class="d-flex gap-2">
-                <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
-                  <i class="fas fa-sync-alt me-1"></i>
-                  Refresh
-                </button>
-                <button class="btn btn-success btn-sm" onclick="sslManager.showBulkInstallForm()">
-                  <i class="fas fa-plus me-1"></i>
-                  Bulk Install SSL
-                </button>
-              </div>
+              <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
+                <i class="fas fa-sync-alt me-1"></i>
+                Refresh
+              </button>
             </div>
             <div class="card-body p-0">
               <div id="domain-list-container">
@@ -620,7 +619,7 @@ class SSLManager {
           <td>
             <div class="btn-group btn-group-sm" role="group">
               ${!hasSSL ? `
-                <button class="btn btn-success" onclick="event.stopPropagation(); sslManager.showInstallForm('${domain.domain}')" title="Install SSL Certificate">
+                <button class="btn btn-success" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')" title="Install SSL Certificate">
                   <i class="fas fa-plus"></i> Install SSL
                 </button>
               ` : `
@@ -634,6 +633,29 @@ class SSLManager {
             </div>
           </td>
         </tr>
+        ${!hasSSL ? `
+        <tr id="install-form-${domain.domain}" class="install-form-row" style="display: none;">
+          <td colspan="6" class="p-3 bg-light">
+            <div class="row align-items-end">
+              <div class="col-md-6">
+                <label class="form-label">Email for Let's Encrypt:</label>
+                <input type="email" class="form-control" id="email-${domain.domain}" placeholder="admin@example.com" required>
+              </div>
+              <div class="col-md-4">
+                <button class="btn btn-success" onclick="sslManager.installSSLFromForm('${domain.domain}')">
+                  <i class="fas fa-download me-1"></i> Install Certificate
+                </button>
+                <button class="btn btn-outline-secondary ms-2" onclick="sslManager.toggleInstallForm('${domain.domain}')">
+                  Cancel
+                </button>
+              </div>
+              <div class="col-md-2">
+                <small class="text-muted">Required for certificate registration and renewal notifications.</small>
+              </div>
+            </div>
+          </td>
+        </tr>
+        ` : ''}
       `;
     }).join('');
 
@@ -892,50 +914,42 @@ class SSLManager {
     `;
   }
 
-  showInstallForm(domain) {
-    const email = prompt('Enter email address for Let\'s Encrypt registration:');
-    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      this.installSSL(domain, email);
-    } else if (email) {
-      alert('Please enter a valid email address.');
+  toggleInstallForm(domain) {
+    const formRow = document.getElementById(`install-form-${domain}`);
+    if (formRow) {
+      const isVisible = formRow.style.display !== 'none';
+      formRow.style.display = isVisible ? 'none' : 'table-row';
+      
+      // Clear any previous email input
+      if (!isVisible) {
+        const emailInput = document.getElementById(`email-${domain}`);
+        if (emailInput) emailInput.value = '';
+      }
     }
   }
 
-  showBulkInstallForm() {
-    const domainsWithoutSSL = this.domains.filter(d => !d.ssl?.hasSSL);
+  async installSSLFromForm(domain) {
+    const emailInput = document.getElementById(`email-${domain}`);
+    if (!emailInput) return;
     
-    if (domainsWithoutSSL.length === 0) {
-      alert('All domains already have SSL certificates installed.');
+    const email = emailInput.value.trim();
+    if (!email) {
+      this.addNotification('error', 'Email address is required', true);
       return;
     }
 
-    const email = prompt(`Install SSL certificates for ${domainsWithoutSSL.length} domains without SSL?\n\nEnter email address for Let's Encrypt registration:`);
-    if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      this.bulkInstallSSL(domainsWithoutSSL, email);
-    } else if (email) {
-      alert('Please enter a valid email address.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      this.addNotification('error', 'Please enter a valid email address', true);
+      return;
     }
-  }
 
-  async bulkInstallSSL(domains, email) {
-    this.addNotification('info', `Starting bulk SSL installation for ${domains.length} domains...`, false);
-    
-    let successCount = 0;
-    let errorCount = 0;
-    
-    for (const domain of domains) {
-      try {
-        await this.installSSL(domain.domain, email);
-        successCount++;
-        // Add delay between installations to avoid overwhelming the system
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        errorCount++;
-        console.error(`Failed to install SSL for ${domain.domain}:`, error);
-      }
+    try {
+      await this.installSSL(domain, email);
+      this.toggleInstallForm(domain); // Hide the form after successful installation
+      this.addNotification('success', `SSL installation started for ${domain}`, true);
+    } catch (error) {
+      this.addNotification('error', `Failed to install SSL: ${error.message}`, true);
     }
-    
-    this.addNotification('success', `Bulk installation completed: ${successCount} successful, ${errorCount} failed`, true);
   }
 
   renderNotifications() {
