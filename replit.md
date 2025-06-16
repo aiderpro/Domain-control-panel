@@ -132,6 +132,8 @@ Changelog:
 - June 16, 2025: Corrected SSL expiry calculation to show accurate 90-day countdown
 - June 16, 2025: Fixed browser reload issue - app now loads properly without stuck loader
 - June 16, 2025: Restored complete frontend functionality after blank page issue
+- June 16, 2025: Added complete domain deletion functionality with SSL certificate removal
+- June 16, 2025: Created production deployment scripts for seamless updates
 ```
 
 ## User Preferences
