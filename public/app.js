@@ -875,6 +875,46 @@ class SSLManager {
                   ${this.renderCertificateActions(domain)}
                 </td>
               </tr>
+              <tr id="ssl-install-form-row-${domain.domain}" style="display: none;">
+                <td colspan="4">
+                  <div class="alert alert-light border m-2">
+                    <h6 class="alert-heading">Install SSL Certificate for ${domain.domain}</h6>
+                    <div class="row">
+                      <div class="col-md-4">
+                        <div class="mb-3">
+                          <label for="ssl-email-${domain.domain}" class="form-label">Email Address</label>
+                          <input type="email" id="ssl-email-${domain.domain}" class="form-control" placeholder="your@email.com" required>
+                          <div class="form-text">Required for Let's Encrypt certificate registration</div>
+                        </div>
+                      </div>
+                      <div class="col-md-4">
+                        <div class="mb-3">
+                          <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
+                          <select id="ssl-method-${domain.domain}" class="form-select">
+                            <option value="nginx" selected>Nginx Method (Default)</option>
+                            <option value="dns">DNS Method (CloudNS)</option>
+                          </select>
+                          <div class="form-text">
+                            <strong>Nginx:</strong> Web server verification<br>
+                            <strong>DNS:</strong> DNS challenge (CloudNS)
+                          </div>
+                        </div>
+                      </div>
+                      <div class="col-md-4">
+                        <div class="mb-3">
+                          <label class="form-label">&nbsp;</label>
+                          <div class="d-flex gap-2">
+                            <button class="btn btn-success" onclick="event.stopPropagation(); sslManager.installSSLFromForm('${domain.domain}')">
+                              <i class="fas fa-shield-alt me-1"></i> Install Certificate
+                            </button>
+                            <button class="btn btn-secondary" onclick="event.stopPropagation(); sslManager.toggleInstallForm('${domain.domain}')">Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
             `).join('')}
           </tbody>
         </table>
@@ -1041,32 +1081,7 @@ class SSLManager {
             </div>
           </div>
 
-          <!-- SSL Installation Form (Initially Hidden) -->
-          <div id="ssl-install-form-${domain.domain}" class="alert alert-light border" style="display: none;">
-            <h6 class="alert-heading">Install SSL Certificate</h6>
-            <div class="mb-3">
-              <label for="ssl-email-${domain.domain}" class="form-label">Email Address</label>
-              <input type="email" id="ssl-email-${domain.domain}" class="form-control" placeholder="your@email.com" required>
-              <div class="form-text">Required for Let's Encrypt certificate registration</div>
-            </div>
-            <div class="mb-3">
-              <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
-              <select id="ssl-method-${domain.domain}" class="form-select">
-                <option value="nginx" selected>Nginx Method (Default)</option>
-                <option value="dns">DNS Method (CloudNS)</option>
-              </select>
-              <div class="form-text">
-                <strong>Nginx:</strong> Uses web server verification (requires domain pointing to server)<br>
-                <strong>DNS:</strong> Uses DNS challenge verification (works with CloudNS.net)
-              </div>
-            </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-success" onclick="sslManager.installSSLFromForm('${domain.domain}')">
-                <i class="fas fa-shield-alt me-1"></i> Install Certificate
-              </button>
-              <button class="btn btn-secondary" onclick="sslManager.toggleInstallForm('${domain.domain}')">Cancel</button>
-            </div>
-          </div>
+
 
           <div class="mt-3">
             <label class="form-label fw-bold">Domain Configuration</label>
@@ -1129,15 +1144,15 @@ class SSLManager {
   }
 
   toggleInstallForm(domain) {
-    const form = document.getElementById(`ssl-install-form-${domain}`);
-    if (form) {
-      const isVisible = form.style.display !== 'none';
-      form.style.display = isVisible ? 'none' : 'block';
+    const formRow = document.getElementById(`ssl-install-form-row-${domain}`);
+    if (formRow) {
+      const isVisible = formRow.style.display !== 'none';
+      formRow.style.display = isVisible ? 'none' : 'table-row';
       
       if (!isVisible) {
         const emailInput = document.getElementById(`ssl-email-${domain}`);
         if (emailInput) {
-          emailInput.focus();
+          setTimeout(() => emailInput.focus(), 100);
         }
       }
     }
