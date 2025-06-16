@@ -94,13 +94,13 @@ class CertbotService {
    */
   performRealSSLInstallation(domain, email, io, resolve, reject) {
     const args = [
-      'certonly',
       '--nginx',
       '--non-interactive',
       '--agree-tos',
       '--email', email,
       '-d', domain,
-      '--expand'
+      '--expand',
+      '--redirect'
     ];
 
     // Emit status updates
@@ -151,13 +151,36 @@ class CertbotService {
           const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
           await fs.access(certPath);
           
-          if (io) {
-            io.emit('ssl_install_complete', { 
-              domain, 
-              success: true,
-              message: 'Certificate installed successfully' 
-            });
-          }
+          // Verify nginx configuration was updated
+          await this.verifyNginxSSLConfig(domain, io);
+          
+          // Test nginx configuration
+          const { spawn } = require('child_process');
+          const nginxTest = spawn('nginx', ['-t']);
+          
+          nginxTest.on('close', (testCode) => {
+            if (testCode === 0) {
+              // Reload nginx to apply changes
+              const nginxReload = spawn('systemctl', ['reload', 'nginx']);
+              nginxReload.on('close', (reloadCode) => {
+                if (io) {
+                  io.emit('ssl_install_complete', { 
+                    domain, 
+                    success: true,
+                    message: reloadCode === 0 ? 'Certificate installed and nginx reloaded successfully' : 'Certificate installed but nginx reload failed'
+                  });
+                }
+              });
+            } else {
+              if (io) {
+                io.emit('ssl_install_complete', { 
+                  domain, 
+                  success: true,
+                  message: 'Certificate installed but nginx configuration has errors'
+                });
+              }
+            }
+          });
 
           resolve({
             success: true,
@@ -460,6 +483,64 @@ class CertbotService {
   isValidEmail(email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
+  }
+
+  /**
+   * Verify nginx SSL configuration was updated correctly
+   */
+  async verifyNginxSSLConfig(domain, io = null) {
+    try {
+      const nginxService = require('./nginxService');
+      const nginx = new nginxService();
+      
+      // Get domain configuration
+      const config = await nginx.getDomainConfig(domain);
+      
+      if (!config) {
+        throw new Error(`No nginx configuration found for ${domain}`);
+      }
+      
+      // Check if SSL directives were added
+      const hasSSLCertificate = config.sslCertificate && config.sslCertificate.includes(domain);
+      const hasSSLKey = config.sslCertificateKey && config.sslCertificateKey.includes(domain);
+      const hasPort443 = config.listen && config.listen.includes('443');
+      
+      if (io) {
+        if (hasSSLCertificate && hasSSLKey && hasPort443) {
+          io.emit('ssl_install_progress', { 
+            domain, 
+            stage: 'verification',
+            message: 'Nginx SSL configuration verified successfully' 
+          });
+        } else {
+          io.emit('ssl_install_progress', { 
+            domain, 
+            stage: 'warning',
+            message: 'Nginx SSL configuration may need manual verification' 
+          });
+        }
+      }
+      
+      return {
+        configured: hasSSLCertificate && hasSSLKey && hasPort443,
+        details: {
+          hasSSLCertificate,
+          hasSSLKey,
+          hasPort443,
+          config
+        }
+      };
+    } catch (error) {
+      console.error('Error verifying nginx SSL config:', error);
+      if (io) {
+        io.emit('ssl_install_progress', { 
+          domain, 
+          stage: 'warning',
+          message: 'Could not verify nginx configuration automatically' 
+        });
+      }
+      return { configured: false, error: error.message };
+    }
   }
 
   /**
