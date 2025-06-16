@@ -15,6 +15,10 @@ author = "agent"
 task = "workflow.run"
 args = "Install Dependencies"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Server"
+
 [[workflows.workflow]]
 name = "Install Dependencies"
 author = "agent"
@@ -23,5 +27,18 @@ author = "agent"
 task = "shell.exec"
 args = "npm install express cors socket.io axios react react-dom react-scripts"
 
+[[workflows.workflow]]
+name = "Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node server.js"
+waitForPort = 8000
+
 [deployment]
 run = ["sh", "-c", "npm install express cors socket.io axios react react-dom react-scripts"]
+
+[[ports]]
+localPort = 8000
+externalPort = 80

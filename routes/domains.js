@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get specific domain details
-router.get('/:domain', async (req, res) => {
+router.get('/domain/:domain', async (req, res) => {
   try {
     const domain = req.params.domain;
     const domainConfig = await nginxService.getDomainConfig(domain);
