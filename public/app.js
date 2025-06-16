@@ -127,11 +127,7 @@ class SSLManager {
     });
 
     this.socket.on('ssl_install_complete', (data) => {
-      if (data.method === 'dns' && data.nginxConfig) {
-        this.showDNSConfigurationModal(data);
-      } else {
-        this.addNotification('success', `SSL certificate installed successfully for ${data.domain}`, true);
-      }
+      this.addNotification('success', `SSL certificate installed successfully for ${data.domain} using ${data.method} method`, true);
       this.loadDomains();
     });
 
