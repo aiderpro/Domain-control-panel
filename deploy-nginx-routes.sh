@@ -1,74 +1,48 @@
 #!/bin/bash
 
-# SSL Manager - Deploy nginx routes to production server
-# This script creates a deployment package with the missing nginx routes
+echo "=== Nginx Routes Deployment Script ==="
+echo "Run this on your production server (sitedev.eezix.com)"
+echo
 
-echo "Creating deployment package for nginx routes..."
+# Step 1: Backup current file
+echo "1. Backing up current domains.js:"
+echo "   cp /var/www/nginx-control-panel/routes/domains.js /var/www/nginx-control-panel/routes/domains.js.backup"
+echo
 
-# Create temporary deployment directory
-mkdir -p deployment-package/routes
-mkdir -p deployment-package/services
+# Step 2: Show the file replacement
+echo "2. Replace domains.js with new version:"
+echo "   The new domains.js file needs to be uploaded to:"
+echo "   /var/www/nginx-control-panel/routes/domains.js"
+echo
 
-# Copy nginx route files
-cp routes/nginx-config.js deployment-package/routes/
-cp routes/domains.js deployment-package/routes/
-cp routes/ssl.js deployment-package/routes/
+# Step 3: Restart service
+echo "3. Restart your application:"
+echo "   pm2 restart ssl-manager"
+echo "   # OR if using systemd:"
+echo "   # sudo systemctl restart nginx-control-panel"
+echo
 
-# Copy service files  
-cp services/nginxService.js deployment-package/services/
-cp services/certbotService.js deployment-package/services/
-cp services/sslService.js deployment-package/services/
+# Step 4: Test
+echo "4. Test the endpoints:"
+echo "   curl -X POST https://sitedev.eezix.com/api/domains/validate \\"
+echo "        -H 'Content-Type: application/json' \\"
+echo "        -d '{\"domain\":\"test.example.com\"}'"
+echo
+echo "   Expected: {\"valid\":true}"
+echo
 
-# Copy main server file
-cp server.js deployment-package/
+echo "=== Files to upload ==="
+echo "1. routes/domains.js (main file with domain addition endpoints)"
+echo "2. create-domain.sh (optional: manual domain creation script)"
+echo
 
-# Copy package.json
-cp package.json deployment-package/
+echo "=== What the new domains.js includes ==="
+echo "- POST /api/domains/validate - Domain validation"
+echo "- POST /api/domains/add - Automated nginx configuration creation"
+echo "- Automatic nginx testing (nginx -t)"
+echo "- Automatic nginx reloading (systemctl reload nginx)"
+echo "- Document root set to /var/www/html"
+echo "- Full error handling and logging"
+echo
 
-# Create deployment instructions
-cat > deployment-package/DEPLOY_INSTRUCTIONS.md << 'EOF'
-# Nginx Routes Deployment Instructions
-
-## Files to upload to production server:
-
-1. **routes/nginx-config.js** - Contains nginx domain management routes
-2. **server.js** - Main server file with route registration
-3. **package.json** - Dependencies
-
-## Routes that will be added:
-
-- POST /api/nginx/validate-domain
-- POST /api/nginx/add-domain  
-- GET /api/nginx/test-config
-- POST /api/nginx/reload-config
-
-## Deployment Steps:
-
-1. Stop the production server
-2. Upload these files to /var/www/nginx-control-panel/
-3. Run: npm install (if new dependencies)
-4. Restart the server: node server.js
-5. Test the nginx routes
-
-## Verification:
-
-Test that the nginx routes work:
-```bash
-curl -X POST https://sitedev.eezix.com/api/nginx/validate-domain \
-  -H "Content-Type: application/json" \
-  -d '{"domain":"test.com"}'
-```
-
-Should return: {"valid":true}
-EOF
-
-# Create tar archive
-tar -czf nginx-routes-deployment.tar.gz deployment-package/
-
-echo "Deployment package created: nginx-routes-deployment.tar.gz"
-echo "Upload this to your production server and follow DEPLOY_INSTRUCTIONS.md"
-
-# Clean up
-rm -rf deployment-package/
-
-ls -la nginx-routes-deployment.tar.gz
+echo "Once deployed, domain addition will work automatically through the web interface!"
