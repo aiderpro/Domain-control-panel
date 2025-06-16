@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const nginxService = require('../services/nginxService');
 const sslService = require('../services/sslService');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 
