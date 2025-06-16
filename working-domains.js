@@ -12,9 +12,39 @@ router.get('/', async (req, res) => {
     const domains = await nginxService.scanDomains();
     
     // Enhance domains with SSL information
-    const domainsWithSSL = domains.map((domain) => {
+    const domainsWithSSL = await Promise.all(domains.map(async (domain) => {
       try {
-        const sslInfo = sslService.getDemoSSLStatus(domain.domain);
+        // Check if domain has SSL configuration in nginx
+        const hasSSLConfig = domain.hasSSLConfig || 
+                           (domain.sslCertificate && domain.sslCertificateKey) ||
+                           (domain.ports && domain.ports.includes(443));
+        
+        let sslInfo;
+        if (hasSSLConfig) {
+          // Try to get real SSL status
+          try {
+            sslInfo = await sslService.checkSSLStatus(domain.domain);
+          } catch (sslError) {
+            // If real SSL check fails, create status based on nginx config
+            sslInfo = {
+              status: 'active',
+              hasSSL: true,
+              domain: domain.domain,
+              message: 'SSL configured in nginx',
+              isExpired: false,
+              isExpiringSoon: false,
+              certificatePath: domain.sslCertificate
+            };
+          }
+        } else {
+          sslInfo = {
+            status: 'no_ssl',
+            hasSSL: false,
+            domain: domain.domain,
+            message: 'No SSL certificate found'
+          };
+        }
+        
         return {
           ...domain,
           ssl: sslInfo
@@ -25,11 +55,12 @@ router.get('/', async (req, res) => {
           ssl: {
             status: 'error',
             error: error.message,
-            hasSSL: false
+            hasSSL: false,
+            domain: domain.domain
           }
         };
       }
-    });
+    }));
 
     res.json({
       success: true,

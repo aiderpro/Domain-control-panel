@@ -161,12 +161,22 @@ class SSLManager {
   async loadDomains() {
     try {
       this.loading = true;
+      
+      // Ensure DOM structure exists before showing loading
+      const container = document.getElementById('domain-list-container');
+      if (!container) {
+        console.warn('Domain container not found, rendering dashboard first...');
+        this.renderDashboard();
+        // Wait a bit for DOM to be ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       this.renderLoading();
       
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
       
-      // Set loading to false BEFORE rendering
+      // Always set loading to false
       this.loading = false;
       
       this.applyFiltersAndSort();
@@ -178,7 +188,12 @@ class SSLManager {
       console.error('Error loading domains:', error);
       this.loading = false;
       
-      // Try to safely show error message
+      // Ensure dashboard is rendered before showing error
+      if (!document.getElementById('domain-list-container')) {
+        this.renderDashboard();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       const container = document.getElementById('domain-list-container');
       if (container) {
         container.innerHTML = `
@@ -191,15 +206,8 @@ class SSLManager {
             </button>
           </div>
         `;
-      } else {
-        // If container doesn't exist, render dashboard first then retry
-        console.warn('Domain container not found, rendering dashboard and retrying...');
-        this.renderDashboard();
-        setTimeout(() => this.loadDomains(), 100);
-        return;
       }
       
-      // Only add notification if we can safely do so
       try {
         this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
       } catch (notificationError) {
