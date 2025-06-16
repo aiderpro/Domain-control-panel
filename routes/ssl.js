@@ -6,7 +6,7 @@ const sslService = require('../services/sslService');
 // Install new SSL certificate
 router.post('/install', async (req, res) => {
   try {
-    const { domain, email } = req.body;
+    const { domain, email, method = 'nginx' } = req.body;
 
     if (!domain || !email) {
       return res.status(400).json({
@@ -16,10 +16,19 @@ router.post('/install', async (req, res) => {
       });
     }
 
-    // Emit installation start status
-    req.io.emit('ssl_install_start', { domain });
+    // Validate method
+    if (!['nginx', 'dns'].includes(method)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Method must be either "nginx" or "dns"',
+        timestamp: new Date().toISOString()
+      });
+    }
 
-    const result = await certbotService.installCertificate(domain, email, req.io);
+    // Emit installation start status
+    req.io.emit('ssl_install_start', { domain, method });
+
+    const result = await certbotService.installCertificate(domain, email, method, req.io);
 
     res.json({
       success: true,

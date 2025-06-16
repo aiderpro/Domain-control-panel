@@ -272,9 +272,57 @@ class CertbotService {
   }
 
   /**
-   * Renew SSL certificate for specific domain
+   * Install SSL certificate using DNS challenge with CloudNS
+   */
+  async installCertificateWithDNS(domain, email, io = null) {
+    try {
+      if (io) {
+        io.emit('ssl_install_progress', {
+          domain,
+          stage: 'starting',
+          message: 'Starting SSL installation with DNS challenge...'
+        });
+      }
+
+      // Use CloudNS service for DNS challenge
+      const result = await this.cloudnsService.installSSLWithDNS(domain, email, io);
+      
+      // Save the installation method for future renewals
+      await this.saveSSLMethod(domain, 'dns');
+      
+      return {
+        ...result,
+        method: 'dns'
+      };
+    } catch (error) {
+      console.error('DNS SSL installation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Renew SSL certificate for specific domain using saved method
    */
   async renewCertificate(domain, io = null) {
+    try {
+      // Get the method used for initial installation
+      const method = await this.getSSLMethod(domain);
+      
+      if (method === 'dns') {
+        return this.renewCertificateWithDNS(domain, io);
+      } else {
+        return this.renewCertificateWithNginx(domain, io);
+      }
+    } catch (error) {
+      console.error('Error during certificate renewal:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Renew SSL certificate for specific domain using nginx method
+   */
+  async renewCertificateWithNginx(domain, io = null) {
     return new Promise((resolve, reject) => {
       if (!domain) {
         return reject(new Error('Domain is required'));
@@ -339,6 +387,7 @@ class CertbotService {
 
           resolve({
             success: true,
+            method: 'nginx',
             message: 'Certificate renewed successfully',
             output
           });
@@ -358,6 +407,52 @@ class CertbotService {
         reject(new Error(`Failed to start certbot renewal: ${error.message}`));
       });
     });
+  }
+
+  /**
+   * Renew SSL certificate for specific domain using DNS method
+   */
+  async renewCertificateWithDNS(domain, io = null) {
+    try {
+      if (io) {
+        io.emit('ssl_renew_progress', {
+          domain,
+          stage: 'starting',
+          message: 'Starting certificate renewal with DNS challenge...'
+        });
+      }
+
+      // Use CloudNS service for DNS renewal
+      const result = await this.cloudnsService.installSSLWithDNS(domain, '', io);
+      
+      if (io) {
+        io.emit('ssl_renew_complete', {
+          domain,
+          success: true,
+          method: 'dns',
+          message: 'Certificate renewed successfully using DNS method'
+        });
+      }
+
+      return {
+        success: true,
+        method: 'dns',
+        message: 'Certificate renewed successfully using DNS method',
+        output: result.output || ''
+      };
+    } catch (error) {
+      console.error('DNS certificate renewal error:', error);
+      
+      if (io) {
+        io.emit('ssl_renew_error', {
+          domain,
+          method: 'dns',
+          error: error.message
+        });
+      }
+      
+      throw error;
+    }
   }
 
   /**

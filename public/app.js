@@ -1051,6 +1051,17 @@ class SSLManager {
               <input type="email" id="ssl-email-${domain.domain}" class="form-control" placeholder="your@email.com" required>
               <div class="form-text">Required for Let's Encrypt certificate registration</div>
             </div>
+            <div class="mb-3">
+              <label for="ssl-method-${domain.domain}" class="form-label">Installation Method</label>
+              <select id="ssl-method-${domain.domain}" class="form-select">
+                <option value="nginx" selected>Nginx Method (Default)</option>
+                <option value="dns">DNS Method (CloudNS)</option>
+              </select>
+              <div class="form-text">
+                <strong>Nginx:</strong> Uses web server verification (requires domain pointing to server)<br>
+                <strong>DNS:</strong> Uses DNS challenge verification (works with CloudNS.net)
+              </div>
+            </div>
             <div class="d-flex gap-2">
               <button class="btn btn-success" onclick="sslManager.installSSLFromForm('${domain.domain}')">
                 <i class="fas fa-shield-alt me-1"></i> Install Certificate
