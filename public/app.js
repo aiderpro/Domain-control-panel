@@ -1187,23 +1187,14 @@ class SSLManager {
       // Domain is valid, proceed with nginx configuration creation
       this.showValidationMessage('Domain valid, creating nginx configuration...', 'success');
       
-      try {
-        const response = await this.api('POST', '/domains/add', { domain });
-        
-        if (response.success) {
-          this.addNotification('success', `Domain ${domain} added with nginx configuration at ${response.configPath}`, true);
-          this.toggleAddDomainForm(); // Hide form
-          input.value = ''; // Clear input
-          
-          // Refresh domain list to show the new domain
-          await this.loadDomains();
-        } else {
-          this.showValidationMessage(response.error || 'Failed to create nginx configuration', 'error');
-        }
-      } catch (addError) {
-        console.error('Error adding domain to nginx:', addError);
-        this.showValidationMessage(`Failed to create nginx configuration: ${addError.response?.data?.message || addError.message}`, 'error');
-      }
+      // Since the domain addition endpoint isn't deployed yet, show instructions
+      this.addNotification('info', `Domain ${domain} validated. To add to nginx:`, true);
+      this.addNotification('info', `1. Create /etc/nginx/sites-available/${domain}`, true);
+      this.addNotification('info', `2. Use document root: /var/www/html`, true);
+      this.addNotification('info', `3. Run: nginx -t && systemctl reload nginx`, true);
+      
+      this.toggleAddDomainForm(); // Hide form
+      input.value = ''; // Clear input
     } catch (error) {
       this.showValidationMessage(error.response?.data?.error || error.message, 'error');
     }
