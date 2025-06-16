@@ -37,12 +37,28 @@ class SSLManager {
   }
 
   async init() {
+    // Ensure DOM is ready
+    if (document.readyState === 'loading') {
+      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+    }
+    
     this.renderApp();
+    this.renderDashboard();
     this.bindEvents();
     this.initSocket();
-    // Load domains immediately, don't wait for socket connection
-    this.renderDashboard();
+    
+    // Load domains after dashboard is rendered
+    await this.waitForDOMReady();
     this.loadDomains();
+  }
+  
+  async waitForDOMReady() {
+    // Wait for dashboard elements to be in DOM
+    let attempts = 0;
+    while (!document.getElementById('domain-list-container') && attempts < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
   }
 
   initSocket() {
@@ -161,22 +177,11 @@ class SSLManager {
   async loadDomains() {
     try {
       this.loading = true;
-      
-      // Ensure DOM structure exists before showing loading
-      const container = document.getElementById('domain-list-container');
-      if (!container) {
-        console.warn('Domain container not found, rendering dashboard first...');
-        this.renderDashboard();
-        // Wait a bit for DOM to be ready
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
       this.renderLoading();
       
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
       
-      // Always set loading to false
       this.loading = false;
       
       this.applyFiltersAndSort();
@@ -187,12 +192,6 @@ class SSLManager {
     } catch (error) {
       console.error('Error loading domains:', error);
       this.loading = false;
-      
-      // Ensure dashboard is rendered before showing error
-      if (!document.getElementById('domain-list-container')) {
-        this.renderDashboard();
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
       
       const container = document.getElementById('domain-list-container');
       if (container) {
