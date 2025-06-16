@@ -461,6 +461,10 @@ class SSLManager {
         this.addNotification('error', `DNS SSL installation timed out for ${domain}. CloudNS credentials may not be configured. Try nginx method instead.`, true);
       } else if (error.code === 'ECONNABORTED') {
         this.addNotification('error', `SSL installation timed out for ${domain}. Server may be busy.`, true);
+      } else if (error.response?.status === 400 && method === 'dns') {
+        this.addNotification('error', `DNS method not available: ${error.response.data?.message || error.message}. Please use nginx method.`, true);
+      } else if (error.response?.data?.message) {
+        this.addNotification('error', `SSL installation failed: ${error.response.data.message}`, true);
       } else {
         this.addNotification('error', `SSL installation failed: ${error.message}`, true);
       }

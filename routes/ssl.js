@@ -40,15 +40,26 @@ router.post('/install', async (req, res) => {
     });
   } catch (error) {
     console.error('Error installing SSL certificate:', error);
+    
+    const errorMessage = error.message;
+    const isConfigurationError = errorMessage.includes('CloudNS credentials not configured') || 
+                                errorMessage.includes('DNS SSL installation requires server-side') ||
+                                errorMessage.includes('CloudNS API connection failed');
+    
+    const statusCode = isConfigurationError ? 400 : 500;
+    
     req.io.emit('ssl_install_error', { 
       domain: req.body.domain, 
-      error: error.message 
+      method: req.body.method || 'nginx',
+      error: errorMessage 
     });
 
-    res.status(500).json({
+    res.status(statusCode).json({
       success: false,
-      error: 'Failed to install SSL certificate',
-      message: error.message,
+      error: isConfigurationError ? 'Configuration required' : 'Installation failed',
+      message: errorMessage,
+      domain: req.body.domain,
+      method: req.body.method || 'nginx',
       timestamp: new Date().toISOString()
     });
   }
