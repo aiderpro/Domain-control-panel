@@ -11,12 +11,14 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "*",
+    origin: process.env.NODE_ENV === 'production' ? 
+      ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : "*",
     methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 8000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Middleware
 app.use(cors());
@@ -64,8 +66,9 @@ app.use((err, req, res, next) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`SSL Certificate Manager running on port ${PORT}`);
+  console.log(`Environment: ${NODE_ENV}`);
+  console.log(`Access URL: ${NODE_ENV === 'production' ? 'https://sitedev.eezix.com' : `http://localhost:${PORT}`}`);
 });
 
 module.exports = { app, io };
