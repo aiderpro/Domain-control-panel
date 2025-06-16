@@ -100,4 +100,84 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
+// Simple domain validation function
+function validateDomain(domain) {
+  // Remove protocol if present
+  domain = domain.replace(/^https?:\/\//, '');
+  
+  // Basic domain validation regex
+  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+  
+  if (!domainRegex.test(domain)) {
+    return { valid: false, error: 'Invalid domain format' };
+  }
+  
+  if (domain.length > 253) {
+    return { valid: false, error: 'Domain name too long' };
+  }
+  
+  const parts = domain.split('.');
+  if (parts.length < 2 || parts[parts.length - 1].length < 2) {
+    return { valid: false, error: 'Invalid top-level domain' };
+  }
+  
+  return { valid: true };
+}
+
+// Validate domain endpoint
+router.post('/validate', (req, res) => {
+  const { domain } = req.body;
+  
+  if (!domain) {
+    return res.status(400).json({
+      success: false,
+      error: 'Domain is required'
+    });
+  }
+
+  const validation = validateDomain(domain);
+  res.json(validation);
+});
+
+// Add domain endpoint
+router.post('/add', async (req, res) => {
+  const { domain } = req.body;
+  
+  if (!domain) {
+    return res.status(400).json({
+      success: false,
+      error: 'Domain is required'
+    });
+  }
+
+  const validation = validateDomain(domain);
+  if (!validation.valid) {
+    return res.status(400).json({
+      success: false,
+      error: validation.error
+    });
+  }
+
+  try {
+    console.log(`Adding domain: ${domain}`);
+    
+    if (req.io) {
+      req.io.emit('domain_added', { domain, success: true });
+    }
+    
+    res.json({
+      success: true,
+      message: `Domain ${domain} added successfully`,
+      domain: domain
+    });
+  } catch (error) {
+    console.error('Error adding domain:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add domain',
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;

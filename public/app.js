@@ -1137,34 +1137,12 @@ class SSLManager {
   async validateDomain(domain) {
     try {
       console.log('Validating domain:', domain);
-      console.log('API Base URL:', this.apiBaseUrl);
-      
-      const url = `${this.apiBaseUrl}/api/nginx/validate-domain`;
-      console.log('Full validation URL:', url);
-      
-      const fetchResponse = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ domain })
-      });
-      
-      console.log('Fetch response status:', fetchResponse.status);
-      console.log('Fetch response ok:', fetchResponse.ok);
-      
-      if (!fetchResponse.ok) {
-        const errorText = await fetchResponse.text();
-        console.error('Fetch error response:', errorText);
-        throw new Error(`HTTP ${fetchResponse.status}: ${errorText}`);
-      }
-      
-      const result = await fetchResponse.json();
-      console.log('Validation response:', result);
-      return result;
+      const response = await this.api('POST', '/domains/validate', { domain });
+      console.log('Validation response:', response);
+      return response;
     } catch (error) {
       console.error('Validation error:', error);
-      return { valid: false, error: error.message };
+      return { valid: false, error: error.response?.data?.error || error.message };
     }
   }
 
@@ -1194,12 +1172,15 @@ class SSLManager {
       // Domain is valid, proceed with addition
       this.showValidationMessage('Domain valid, adding to nginx...', 'success');
       
-      const response = await this.api('POST', '/nginx/add-domain', { domain });
+      const response = await this.api('POST', '/domains/add', { domain });
       
       if (response.success) {
         this.addNotification('success', `Domain ${domain} added successfully`, true);
         this.toggleAddDomainForm(); // Hide form
-        // Domain list will be refreshed automatically via socket event
+        input.value = ''; // Clear input
+        
+        // Force refresh domain list
+        await this.loadDomains();
       } else {
         this.showValidationMessage(response.error || 'Failed to add domain', 'error');
       }
