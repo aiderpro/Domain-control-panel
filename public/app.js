@@ -533,12 +533,46 @@ class SSLManager {
                 <i class="fas fa-list me-2"></i>
                 Domains
               </h5>
-              <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
-                <i class="fas fa-sync-alt me-1"></i>
-                Refresh
-              </button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
+                  <i class="fas fa-sync-alt me-1"></i>
+                  Refresh
+                </button>
+                <button class="btn btn-success btn-sm" onclick="sslManager.toggleAddDomainForm()">
+                  <i class="fas fa-plus me-1"></i>
+                  Add Domain
+                </button>
+              </div>
             </div>
             <div class="card-body p-0">
+              <!-- Add Domain Form -->
+              <div id="add-domain-form" class="border-bottom p-3" style="display: none;">
+                <h6 class="mb-3">
+                  <i class="fas fa-plus me-2"></i>
+                  Add New Domain
+                </h6>
+                <div class="row align-items-end">
+                  <div class="col-md-6">
+                    <label class="form-label">Domain Name:</label>
+                    <input type="text" class="form-control" id="new-domain-input" placeholder="example.com or subdomain.example.com" 
+                           onkeypress="if(event.key==='Enter') sslManager.addDomainFromForm()">
+                    <small class="text-muted">Enter domain without http:// or https://</small>
+                  </div>
+                  <div class="col-md-4">
+                    <button class="btn btn-success" onclick="sslManager.addDomainFromForm()">
+                      <i class="fas fa-plus me-1"></i> Add Domain
+                    </button>
+                    <button class="btn btn-outline-secondary ms-2" onclick="sslManager.toggleAddDomainForm()">
+                      Cancel
+                    </button>
+                  </div>
+                  <div class="col-md-2">
+                    <small class="text-muted">Document root: /var/www/html</small>
+                  </div>
+                </div>
+                <div id="domain-validation-message" class="mt-2" style="display: none;"></div>
+              </div>
+              
               <div id="domain-list-container">
                 <div class="text-center py-4">
                   <div class="spinner-border text-primary" role="status"></div>
@@ -1034,6 +1068,96 @@ class SSLManager {
       this.addNotification('success', `SSL installation started for ${domain}`, true);
     } catch (error) {
       this.addNotification('error', `Failed to install SSL: ${error.message}`, true);
+    }
+  }
+
+  toggleAddDomainForm() {
+    const form = document.getElementById('add-domain-form');
+    const input = document.getElementById('new-domain-input');
+    const validationMessage = document.getElementById('domain-validation-message');
+    
+    if (form) {
+      const isVisible = form.style.display !== 'none';
+      form.style.display = isVisible ? 'none' : 'block';
+      
+      if (!isVisible) {
+        // Clear form when showing
+        if (input) input.value = '';
+        if (validationMessage) validationMessage.style.display = 'none';
+        // Focus on input when form is shown
+        setTimeout(() => input?.focus(), 100);
+      }
+    }
+  }
+
+  async validateDomain(domain) {
+    try {
+      const response = await this.api('POST', '/nginx/validate-domain', { domain });
+      return response;
+    } catch (error) {
+      return { valid: false, error: error.response?.data?.error || error.message };
+    }
+  }
+
+  async addDomainFromForm() {
+    const input = document.getElementById('new-domain-input');
+    const validationMessage = document.getElementById('domain-validation-message');
+    
+    if (!input) return;
+    
+    const domain = input.value.trim();
+    if (!domain) {
+      this.showValidationMessage('Domain name is required', 'error');
+      return;
+    }
+
+    // Show validation in progress
+    this.showValidationMessage('Validating domain...', 'info');
+
+    try {
+      // Validate domain format
+      const validation = await this.validateDomain(domain);
+      if (!validation.valid) {
+        this.showValidationMessage(validation.error, 'error');
+        return;
+      }
+
+      // Domain is valid, proceed with addition
+      this.showValidationMessage('Domain valid, adding to nginx...', 'success');
+      
+      const response = await this.api('POST', '/nginx/add-domain', { domain });
+      
+      if (response.success) {
+        this.addNotification('success', `Domain ${domain} added successfully`, true);
+        this.toggleAddDomainForm(); // Hide form
+        // Domain list will be refreshed automatically via socket event
+      } else {
+        this.showValidationMessage(response.error || 'Failed to add domain', 'error');
+      }
+    } catch (error) {
+      this.showValidationMessage(error.response?.data?.error || error.message, 'error');
+    }
+  }
+
+  showValidationMessage(message, type) {
+    const validationMessage = document.getElementById('domain-validation-message');
+    if (!validationMessage) return;
+    
+    const alertClass = type === 'error' ? 'alert-danger' : 
+                     type === 'success' ? 'alert-success' : 'alert-info';
+    
+    validationMessage.innerHTML = `
+      <div class="alert ${alertClass} alert-dismissible fade show mb-0" role="alert">
+        ${message}
+      </div>
+    `;
+    validationMessage.style.display = 'block';
+    
+    // Auto-hide non-error messages after 3 seconds
+    if (type !== 'error') {
+      setTimeout(() => {
+        validationMessage.style.display = 'none';
+      }, 3000);
     }
   }
 
