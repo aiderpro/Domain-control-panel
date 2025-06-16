@@ -12,13 +12,15 @@ class AcmeService {
    */
   async ensureAcmeInstalled() {
     try {
-      await execAsync('which acme.sh');
+      // Check if acme.sh exists at the expected path
+      await execAsync(`test -f ${this.acmePath}`);
       return true;
     } catch (error) {
       console.log('Installing acme.sh...');
       try {
         await execAsync('curl https://get.acme.sh | sh -s email=admin@localhost');
-        await execAsync('ln -sf ~/.acme.sh/acme.sh /usr/local/bin/acme.sh');
+        // Ensure the path exists after installation
+        await execAsync(`test -f ${this.acmePath}`);
         return true;
       } catch (installError) {
         console.error('Failed to install acme.sh:', installError);
@@ -109,8 +111,8 @@ class AcmeService {
         const authId = process.env.CX_User;
         const authPassword = process.env.CX_Key;
         
-        // Issue certificate using CloudNS DNS API with environment variables
-        const acmeCommand = `CX_User="${authId}" CX_Key="${authPassword}" acme.sh --issue --dns dns_cx -d ${domain} --accountemail ${registrationEmail} --cert-file ${this.certDir}/${domain}/cert.pem --key-file ${this.certDir}/${domain}/key.pem --fullchain-file ${this.certDir}/${domain}/fullchain.pem --reloadcmd "systemctl reload nginx" --debug`;
+        // Issue certificate using CloudNS DNS API with environment variables and full path
+        const acmeCommand = `CX_User="${authId}" CX_Key="${authPassword}" ${this.acmePath} --issue --dns dns_cx -d ${domain} --accountemail ${registrationEmail} --cert-file ${this.certDir}/${domain}/cert.pem --key-file ${this.certDir}/${domain}/key.pem --fullchain-file ${this.certDir}/${domain}/fullchain.pem --reloadcmd "systemctl reload nginx" --debug`;
 
         const { stdout, stderr } = await execAsync(acmeCommand);
         
@@ -163,7 +165,7 @@ class AcmeService {
         });
       }
 
-      const renewCommand = `acme.sh --renew -d ${domain} --force`;
+      const renewCommand = `${this.acmePath} --renew -d ${domain} --force`;
       await execAsync(renewCommand);
 
       if (io) {
