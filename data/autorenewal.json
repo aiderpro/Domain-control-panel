@@ -3,7 +3,7 @@
   "renewalDays": 30,
   "checkFrequency": "daily",
   "domains": {},
-  "lastCheck": null,
+  "lastCheck": "2025-06-16T17:05:37.522Z",
   "statistics": {
     "totalRenewals": 0,
     "successfulRenewals": 0,
