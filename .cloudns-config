@@ -1,2 +1,4 @@
-AUTH_ID=test_auth_id
-AUTH_PASSWORD=test_auth_password
+# Replace these with your actual CloudNS credentials
+# Get them from: https://www.cloudns.net/my-account/settings/api-settings/
+AUTH_ID=your_actual_auth_id_here
+AUTH_PASSWORD=your_actual_auth_password_here
