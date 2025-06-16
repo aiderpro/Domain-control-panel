@@ -7,6 +7,7 @@ const socketIo = require('socket.io');
 const domainsRoutes = require('./routes/domains');
 const sslRoutes = require('./routes/ssl');
 const nginxConfigRoutes = require('./routes/nginx-config');
+const autorenewalRoutes = require('./routes/autorenewal');
 
 const app = express();
 const server = http.createServer(app);
@@ -37,6 +38,7 @@ app.use((req, res, next) => {
 app.use('/api/domains', domainsRoutes);
 app.use('/api/ssl', sslRoutes);
 app.use('/api/nginx', nginxConfigRoutes);
+app.use('/api/autorenewal', autorenewalRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

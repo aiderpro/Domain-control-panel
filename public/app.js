@@ -9,6 +9,8 @@ class SSLManager {
     this.notifications = [];
     this.loading = false;
     this.connectionStatus = 'connecting';
+    this.activeTab = 'domains'; // 'domains' or 'autorenewal'
+    this.autorenewalData = null;
     
     // API Base URL configuration
     this.apiBaseUrl = this.getApiBaseUrl();
@@ -168,6 +170,30 @@ class SSLManager {
     this.socket.on('domain_delete_error', (data) => {
       this.addNotification('error', `Failed to delete domain ${data.domain}: ${data.error}`, true);
     });
+
+    // Autorenewal listeners
+    this.socket.on('autorenewal_settings_updated', (data) => {
+      this.addNotification('success', 'Autorenewal settings updated successfully', true);
+      this.loadAutorenewalData();
+    });
+
+    this.socket.on('autorenewal_domain_toggled', (data) => {
+      this.addNotification('info', `Autorenewal ${data.enabled ? 'enabled' : 'disabled'} for ${data.domain}`, true);
+      this.loadAutorenewalData();
+    });
+
+    this.socket.on('autorenewal_check_started', () => {
+      this.addNotification('info', 'Starting SSL renewal check for all domains...', false);
+    });
+
+    this.socket.on('autorenewal_check_completed', (data) => {
+      this.addNotification('success', `Renewal check completed: ${data.checked} checked, ${data.renewed} renewed`, true);
+      this.loadAutorenewalData();
+    });
+
+    this.socket.on('autorenewal_check_error', (data) => {
+      this.addNotification('error', `Renewal check failed: ${data.error}`, true);
+    });
   }
 
   async api(method, url, data = null) {
@@ -240,6 +266,20 @@ class SSLManager {
     this.updateStats();
     this.renderDomainList();
     this.renderSSLPanel();
+  }
+
+  async loadAutorenewalData() {
+    try {
+      const response = await this.api('GET', '/autorenewal/status');
+      this.autorenewalData = response;
+      
+      if (this.activeTab === 'autorenewal') {
+        this.renderAutorenewalTab();
+      }
+    } catch (error) {
+      console.error('Error loading autorenewal data:', error);
+      this.addNotification('error', 'Failed to load autorenewal data: ' + (error.message || 'Unknown error'), true);
+    }
   }
 
   applyFiltersAndSort() {
@@ -500,6 +540,61 @@ class SSLManager {
     if (!mainContent) return;
     
     mainContent.innerHTML = `
+      <!-- Navigation Tabs -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header">
+              <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link ${this.activeTab === 'domains' ? 'active' : ''}" 
+                          type="button" onclick="sslManager.switchTab('domains')">
+                    <i class="fas fa-globe me-1"></i> Domain Management
+                  </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link ${this.activeTab === 'autorenewal' ? 'active' : ''}" 
+                          type="button" onclick="sslManager.switchTab('autorenewal')">
+                    <i class="fas fa-sync-alt me-1"></i> SSL Autorenewal
+                    <span class="badge bg-success ms-1" id="autorenewal-badge">-</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content -->
+      <div id="tab-content">
+        <!-- Content will be rendered here based on active tab -->
+      </div>
+    `;
+    
+    // Load appropriate tab content
+    if (this.activeTab === 'domains') {
+      this.renderDomainsTab();
+    } else if (this.activeTab === 'autorenewal') {
+      this.renderAutorenewalTab();
+    }
+  }
+
+  switchTab(tab) {
+    this.activeTab = tab;
+    this.renderDashboard();
+    
+    if (tab === 'domains') {
+      this.loadDomains();
+    } else if (tab === 'autorenewal') {
+      this.loadAutorenewalData();
+    }
+  }
+
+  renderDomainsTab() {
+    const tabContent = document.getElementById('tab-content');
+    if (!tabContent) return;
+    
+    tabContent.innerHTML = `
       <div class="row">
         <!-- Statistics Cards -->
         <div class="col-12 mb-4">
@@ -1157,6 +1252,342 @@ class SSLManager {
       console.error('Domain deletion error:', error);
       this.addNotification('error', `Domain deletion failed: ${error.message}`, true);
     }
+  }
+
+  // Autorenewal Management Methods
+  renderAutorenewalTab() {
+    const tabContent = document.getElementById('tab-content');
+    if (!tabContent) return;
+
+    if (!this.autorenewalData) {
+      tabContent.innerHTML = `
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-3 text-muted">Loading autorenewal data...</p>
+        </div>
+      `;
+      return;
+    }
+
+    const stats = this.autorenewalData.statistics;
+    const config = this.autorenewalData.config;
+    const domains = this.autorenewalData.domains || [];
+
+    tabContent.innerHTML = `
+      <div class="row">
+        <!-- Summary Cards -->
+        <div class="col-12 mb-4">
+          <div class="row">
+            <div class="col-md-3">
+              <div class="card bg-success text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Active Renewals</h6>
+                      <h2 class="mb-0">${stats.autorenewalEnabled || 0}</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card bg-warning text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Needing Renewal</h6>
+                      <h2 class="mb-0">${stats.needingRenewal || 0}</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-clock fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card bg-info text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Total Renewals</h6>
+                      <h2 class="mb-0">${stats.totalRenewals || 0}</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-history fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card bg-danger text-white">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                      <h6 class="card-title mb-0">Failed</h6>
+                      <h2 class="mb-0">${stats.failedRenewals || 0}</h2>
+                    </div>
+                    <div class="ms-3">
+                      <i class="fas fa-exclamation-triangle fa-2x opacity-75"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Global Settings -->
+        <div class="col-12 mb-4">
+          <div class="card">
+            <div class="card-header">
+              <h5 class="mb-0">Global Autorenewal Settings</h5>
+            </div>
+            <div class="card-body">
+              <div class="row align-items-center">
+                <div class="col-md-6">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="globalAutoRenewal" 
+                           ${config.globalEnabled ? 'checked' : ''} 
+                           onchange="sslManager.updateGlobalSettings()">
+                    <label class="form-check-label fw-bold" for="globalAutoRenewal">
+                      <i class="fas fa-globe me-1"></i> Enable Global Autorenewal
+                    </label>
+                  </div>
+                  <small class="text-muted">Automatically renew SSL certificates before expiry</small>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Renewal Days Before Expiry</label>
+                  <input type="number" class="form-control" id="renewalDays" 
+                         value="${config.renewalDays}" min="1" max="89" 
+                         onchange="sslManager.updateGlobalSettings()">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Check Frequency</label>
+                  <select class="form-select" id="checkFrequency" onchange="sslManager.updateGlobalSettings()">
+                    <option value="daily" ${config.checkFrequency === 'daily' ? 'selected' : ''}>Daily</option>
+                    <option value="weekly" ${config.checkFrequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+                    <option value="hourly" ${config.checkFrequency === 'hourly' ? 'selected' : ''}>Hourly</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Domain Status Table -->
+        <div class="col-12">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0">Domain Autorenewal Status</h5>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary btn-sm" onclick="sslManager.loadAutorenewalData()">
+                  <i class="fas fa-sync-alt me-1"></i> Refresh Status
+                </button>
+                <button class="btn btn-success btn-sm" onclick="sslManager.runRenewalCheck()">
+                  <i class="fas fa-play me-1"></i> Run Check Now
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              ${this.renderAutorenewalTable(domains)}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Update the badge in the tab
+    const badge = document.getElementById('autorenewal-badge');
+    if (badge) {
+      badge.textContent = `${stats.autorenewalEnabled || 0} Active`;
+    }
+  }
+
+  renderAutorenewalTable(domains) {
+    if (domains.length === 0) {
+      return `
+        <div class="text-center py-5">
+          <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+          <h5 class="text-muted">No domains found</h5>
+          <p class="text-muted">Add domains to manage SSL autorenewal</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="table-responsive">
+        <table class="table table-hover">
+          <thead class="table-light">
+            <tr>
+              <th>Domain</th>
+              <th>Autorenewal Status</th>
+              <th>SSL Expiry</th>
+              <th>Next Check</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${domains.map(domain => this.renderAutorenewalRow(domain)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  renderAutorenewalRow(domain) {
+    const ssl = domain.ssl;
+    const autorenewal = domain.autorenewal;
+    
+    let statusBadge, expiryDisplay, nextCheck, actions;
+
+    if (!ssl?.hasSSL) {
+      statusBadge = '<span class="badge bg-secondary"><i class="fas fa-times-circle me-1"></i> N/A</span>';
+      expiryDisplay = '<span class="text-muted"><i class="fas fa-minus me-1"></i> No SSL</span>';
+      nextCheck = '<span class="text-muted">-</span>';
+      actions = `
+        <button class="btn btn-outline-success btn-sm" onclick="sslManager.installSSLFirst('${domain.domain}')" title="Install SSL First">
+          <i class="fas fa-plus me-1"></i> Install SSL
+        </button>
+      `;
+    } else {
+      statusBadge = autorenewal.enabled 
+        ? '<span class="badge bg-success"><i class="fas fa-check-circle me-1"></i> Enabled</span>'
+        : '<span class="badge bg-warning"><i class="fas fa-pause-circle me-1"></i> Disabled</span>';
+      
+      const daysRemaining = ssl.daysRemaining || 0;
+      let expiryClass = 'text-success';
+      if (daysRemaining <= 30) expiryClass = 'text-warning';
+      if (daysRemaining <= 7) expiryClass = 'text-danger';
+      
+      expiryDisplay = `
+        <span class="${expiryClass}">
+          <i class="fas fa-shield-alt me-1"></i> ${daysRemaining} days
+        </span>
+        <br><small class="text-muted">${new Date(ssl.expiryDate).toLocaleDateString()}</small>
+      `;
+      
+      nextCheck = autorenewal.nextCheck 
+        ? `<span class="text-info">${this.formatRelativeDate(autorenewal.nextCheck)}</span>`
+        : '<span class="text-muted">-</span>';
+      
+      actions = `
+        <div class="btn-group" role="group">
+          <button class="btn btn-outline-${autorenewal.enabled ? 'warning' : 'success'} btn-sm" 
+                  onclick="sslManager.toggleDomainAutorenewal('${domain.domain}', ${!autorenewal.enabled})" 
+                  title="${autorenewal.enabled ? 'Disable' : 'Enable'} Autorenewal">
+            <i class="fas fa-${autorenewal.enabled ? 'pause' : 'play'}"></i>
+          </button>
+          <button class="btn btn-outline-primary btn-sm" 
+                  onclick="sslManager.forceRenewalDomain('${domain.domain}')" 
+                  title="Force Renewal">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      `;
+    }
+
+    return `
+      <tr>
+        <td>
+          <strong>${domain.domain}</strong>
+          <br><small class="text-muted">${ssl?.issuer || 'No SSL Certificate'}</small>
+        </td>
+        <td>${statusBadge}</td>
+        <td>${expiryDisplay}</td>
+        <td>${nextCheck}</td>
+        <td>${actions}</td>
+      </tr>
+    `;
+  }
+
+  formatRelativeDate(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = date.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays > 1) return `${diffDays} days`;
+    return 'Past due';
+  }
+
+  async updateGlobalSettings() {
+    try {
+      const globalEnabled = document.getElementById('globalAutoRenewal').checked;
+      const renewalDays = parseInt(document.getElementById('renewalDays').value);
+      const checkFrequency = document.getElementById('checkFrequency').value;
+      
+      const response = await this.api('POST', '/autorenewal/settings', {
+        globalEnabled,
+        renewalDays,
+        checkFrequency
+      });
+      
+      if (response.success) {
+        this.addNotification('success', 'Autorenewal settings updated successfully', true);
+      }
+    } catch (error) {
+      console.error('Error updating autorenewal settings:', error);
+      this.addNotification('error', `Failed to update settings: ${error.message}`, true);
+    }
+  }
+
+  async toggleDomainAutorenewal(domain, enabled) {
+    try {
+      const response = await this.api('POST', `/autorenewal/toggle/${domain}`, { enabled });
+      
+      if (response.success) {
+        this.addNotification('success', `Autorenewal ${enabled ? 'enabled' : 'disabled'} for ${domain}`, true);
+        this.loadAutorenewalData();
+      }
+    } catch (error) {
+      console.error('Error toggling autorenewal:', error);
+      this.addNotification('error', `Failed to toggle autorenewal: ${error.message}`, true);
+    }
+  }
+
+  async runRenewalCheck() {
+    try {
+      this.addNotification('info', 'Starting SSL renewal check for all domains...', false);
+      
+      const response = await this.api('POST', '/autorenewal/check');
+      
+      if (response.success) {
+        this.addNotification('success', 'Renewal check completed successfully', true);
+      }
+    } catch (error) {
+      console.error('Error running renewal check:', error);
+      this.addNotification('error', `Renewal check failed: ${error.message}`, true);
+    }
+  }
+
+  async forceRenewalDomain(domain) {
+    try {
+      this.addNotification('info', `Starting SSL renewal for ${domain}...`, false);
+      
+      const response = await this.api('POST', `/autorenewal/renew/${domain}`);
+      
+      if (response.success) {
+        this.addNotification('success', `SSL renewal initiated for ${domain}`, true);
+      }
+    } catch (error) {
+      console.error('Error forcing renewal:', error);
+      this.addNotification('error', `Renewal failed: ${error.message}`, true);
+    }
+  }
+
+  installSSLFirst(domain) {
+    // Switch to domains tab and highlight the domain for SSL installation
+    this.switchTab('domains');
+    this.addNotification('info', `Please install SSL certificate for ${domain} first`, true);
   }
 
   showValidationMessage(message, type) {
