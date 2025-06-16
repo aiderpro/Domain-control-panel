@@ -6,6 +6,7 @@ const socketIo = require('socket.io');
 
 const domainsRoutes = require('./routes/domains');
 const sslRoutes = require('./routes/ssl');
+const nginxConfigRoutes = require('./routes/nginx-config');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +36,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/domains', domainsRoutes);
 app.use('/api/ssl', sslRoutes);
+app.use('/api/nginx', nginxConfigRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

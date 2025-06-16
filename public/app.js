@@ -98,6 +98,20 @@ class SSLManager {
     this.socket.on('ssl_renew_error', (data) => {
       this.addNotification('error', `SSL renewal failed for ${data.domain}: ${data.error}`, true);
     });
+
+    // Domain management listeners
+    this.socket.on('domain_add_progress', (data) => {
+      this.addNotification('info', `Adding domain ${data.domain}: ${data.message}`, false);
+    });
+
+    this.socket.on('domain_add_complete', (data) => {
+      this.addNotification('success', `Domain ${data.domain} added successfully`, true);
+      this.loadDomains();
+    });
+
+    this.socket.on('domain_add_error', (data) => {
+      this.addNotification('error', `Failed to add domain ${data.domain}: ${data.error}`, true);
+    });
   }
 
   async api(method, url, data = null) {
