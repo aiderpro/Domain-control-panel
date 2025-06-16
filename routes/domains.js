@@ -159,9 +159,14 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-    console.log(`Creating nginx configuration for domain: ${domain}`);
+    console.log(`\n=== Creating nginx configuration for domain: ${domain} ===`);
     
     const nginxConfig = await createNginxConfig(domain);
+    
+    console.log(`✓ Domain ${domain} successfully added with nginx configuration`);
+    console.log(`✓ Config file: ${nginxConfig.configPath}`);
+    console.log(`✓ Enabled at: ${nginxConfig.enabledPath}`);
+    console.log(`✓ Nginx tested and reloaded successfully`);
     
     if (req.io) {
       req.io.emit('domain_added', { domain, success: true });
@@ -169,16 +174,26 @@ router.post('/add', async (req, res) => {
     
     res.json({
       success: true,
-      message: `Domain ${domain} added successfully with nginx configuration`,
+      message: `Domain ${domain} added successfully with nginx configuration, tested and reloaded`,
       domain: domain,
-      configPath: `/etc/nginx/sites-available/${domain}`
+      configPath: `/etc/nginx/sites-available/${domain}`,
+      enabledPath: `/etc/nginx/sites-enabled/${domain}`,
+      nginxTested: true,
+      nginxReloaded: true
     });
   } catch (error) {
-    console.error('Error adding domain:', error);
+    console.error(`\n✗ Error adding domain ${domain}:`, error.message);
+    console.error('Full error details:', error);
+    
+    if (req.io) {
+      req.io.emit('domain_add_error', { domain, error: error.message });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to add domain',
-      message: error.message
+      message: error.message,
+      details: error.stack
     });
   }
 });
@@ -241,26 +256,37 @@ async function createNginxConfig(domain) {
 }`;
 
   try {
+    // Ensure nginx directories exist
+    await fs.mkdir(sitesAvailable, { recursive: true });
+    await fs.mkdir(sitesEnabled, { recursive: true });
+    console.log(`Verified nginx directories exist`);
+    
+    // Ensure document root exists
+    await fs.mkdir('/var/www/html', { recursive: true });
+    console.log(`Verified document root /var/www/html exists`);
+    
     // Write nginx configuration file
     await fs.writeFile(configPath, nginxConfig);
-    console.log(`Created nginx config: ${configPath}`);
+    console.log(`✓ Created nginx config: ${configPath}`);
     
     // Create symbolic link to enable site
     const enabledPath = path.join(sitesEnabled, domain);
     try {
       await fs.symlink(configPath, enabledPath);
-      console.log(`Enabled site: ${enabledPath}`);
+      console.log(`✓ Enabled site: ${enabledPath}`);
     } catch (linkError) {
       if (linkError.code !== 'EEXIST') {
         throw linkError;
       }
-      console.log(`Site already enabled: ${enabledPath}`);
+      console.log(`✓ Site already enabled: ${enabledPath}`);
     }
     
     // Test nginx configuration
+    console.log(`Testing nginx configuration...`);
     await testNginxConfig();
     
     // Reload nginx
+    console.log(`Reloading nginx...`);
     await reloadNginx();
     
     return {
@@ -275,46 +301,80 @@ async function createNginxConfig(domain) {
   }
 }
 
-// Test nginx configuration
+// Test nginx configuration with detailed logging
 function testNginxConfig() {
   return new Promise((resolve, reject) => {
+    console.log('Running nginx configuration test: nginx -t');
     const process = spawn('nginx', ['-t'], { stdio: 'pipe' });
     
-    let output = '';
+    let stdout = '';
+    let stderr = '';
+    
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
     process.stderr.on('data', (data) => {
-      output += data.toString();
+      stderr += data.toString();
     });
     
     process.on('close', (code) => {
+      const output = stderr + stdout;
+      console.log(`Nginx test exit code: ${code}`);
+      console.log(`Nginx test output: ${output}`);
+      
       if (code === 0) {
-        console.log('Nginx configuration test passed');
+        console.log('✓ Nginx configuration test PASSED');
         resolve(output);
       } else {
-        console.error('Nginx configuration test failed:', output);
-        reject(new Error(`Nginx config test failed: ${output}`));
+        console.error('✗ Nginx configuration test FAILED');
+        console.error('Error details:', output);
+        reject(new Error(`Nginx configuration test failed (exit code ${code}): ${output}`));
       }
+    });
+    
+    process.on('error', (error) => {
+      console.error('Error spawning nginx test process:', error);
+      reject(new Error(`Failed to run nginx test: ${error.message}`));
     });
   });
 }
 
-// Reload nginx configuration
+// Reload nginx configuration with detailed logging
 function reloadNginx() {
   return new Promise((resolve, reject) => {
+    console.log('Reloading nginx configuration: systemctl reload nginx');
     const process = spawn('systemctl', ['reload', 'nginx'], { stdio: 'pipe' });
     
-    let output = '';
+    let stdout = '';
+    let stderr = '';
+    
+    process.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
     process.stderr.on('data', (data) => {
-      output += data.toString();
+      stderr += data.toString();
     });
     
     process.on('close', (code) => {
+      const output = stderr + stdout;
+      console.log(`Nginx reload exit code: ${code}`);
+      console.log(`Nginx reload output: ${output}`);
+      
       if (code === 0) {
-        console.log('Nginx reloaded successfully');
+        console.log('✓ Nginx reloaded SUCCESSFULLY');
         resolve(output);
       } else {
-        console.error('Nginx reload failed:', output);
-        reject(new Error(`Nginx reload failed: ${output}`));
+        console.error('✗ Nginx reload FAILED');
+        console.error('Error details:', output);
+        reject(new Error(`Nginx reload failed (exit code ${code}): ${output}`));
       }
+    });
+    
+    process.on('error', (error) => {
+      console.error('Error spawning nginx reload process:', error);
+      reject(new Error(`Failed to reload nginx: ${error.message}`));
     });
   });
 }
