@@ -147,7 +147,10 @@ class CloudNSService {
   /**
    * Install SSL certificate using DNS challenge with CloudNS
    */
-  async installSSLWithDNS(domain, email, io = null) {
+  async installSSLWithDNS(domains, email, io = null) {
+    // Handle both single domain and array of domains
+    const domainArray = Array.isArray(domains) ? domains : [domains];
+    const primaryDomain = domainArray[0];
     return new Promise(async (resolve, reject) => {
       try {
         // Check if CloudNS credentials are configured

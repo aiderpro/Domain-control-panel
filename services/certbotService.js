@@ -54,6 +54,31 @@ class CertbotService {
   }
 
   /**
+   * Determine if domain should include www subdomain for SSL
+   */
+  shouldIncludeWWW(domain) {
+    // Count dots in domain to determine if it's a subdomain
+    const dotCount = (domain.match(/\./g) || []).length;
+    
+    // If domain has only one dot (e.g., example.com), include www
+    // If domain has multiple dots (e.g., sub.example.com), it's already a subdomain
+    return dotCount === 1 && !domain.startsWith('www.');
+  }
+
+  /**
+   * Get domains array for SSL certificate installation
+   */
+  getDomainsForSSL(domain) {
+    const domains = [domain];
+    
+    if (this.shouldIncludeWWW(domain)) {
+      domains.push(`www.${domain}`);
+    }
+    
+    return domains;
+  }
+
+  /**
    * Install SSL certificate using specified method (nginx or dns)
    */
   async installCertificate(domain, email, method = 'nginx', io = null) {
@@ -146,15 +171,22 @@ class CertbotService {
    * Perform real SSL installation with certbot
    */
   performRealSSLInstallation(domain, email, io, resolve, reject) {
+    // Get domains array (includes www if applicable)
+    const domains = this.getDomainsForSSL(domain);
+    
     const args = [
       '--nginx',
       '--non-interactive',
       '--agree-tos',
       '--email', email,
-      '-d', domain,
       '--expand',
       '--redirect'
     ];
+
+    // Add domain arguments
+    domains.forEach(d => {
+      args.push('-d', d);
+    });
 
     // Emit status updates
     if (io) {
@@ -284,8 +316,11 @@ class CertbotService {
         });
       }
 
+      // Get domains array (includes www if applicable)
+      const domains = this.getDomainsForSSL(domain);
+      
       // Use CloudNS service for DNS challenge
-      const result = await this.cloudnsService.installSSLWithDNS(domain, email, io);
+      const result = await this.cloudnsService.installSSLWithDNS(domains, email, io);
       
       // Save the installation method for future renewals
       await this.saveSSLMethod(domain, 'dns');
