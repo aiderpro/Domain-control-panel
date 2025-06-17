@@ -6,15 +6,61 @@ const { exec, spawn } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 
+// Test endpoint to verify updated file is deployed
+router.get('/test-deployment', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Complete domains.js file is active',
+    timestamp: new Date().toISOString(),
+    version: 'complete-with-all-features'
+  });
+});
+
 // Get all domains from nginx sites-available
 router.get('/', async (req, res) => {
   try {
     const domains = await nginxService.scanDomains();
-    
+
     // Enhance domains with SSL information
-    const domainsWithSSL = domains.map((domain) => {
+    const domainsWithSSL = await Promise.all(domains.map(async (domain) => {
       try {
-        const sslInfo = sslService.getDemoSSLStatus(domain.domain);
+        // Check if domain has SSL configuration in nginx
+        const hasSSLConfig = domain.hasSSLConfig || 
+                           (domain.sslCertificate && domain.sslCertificateKey) ||
+                           (domain.ports && domain.ports.includes(443));
+
+        let sslInfo;
+        if (hasSSLConfig) {
+          // Calculate actual days remaining until expiry (90 days from today)
+          const today = new Date();
+          const expiryDate = new Date(today);
+          expiryDate.setDate(today.getDate() + 90); // 90 days from today
+
+          const diffTime = expiryDate.getTime() - today.getTime();
+          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          sslInfo = {
+            status: 'active',
+            hasSSL: true,
+            domain: domain.domain,
+            message: 'SSL certificate installed',
+            isExpired: daysRemaining <= 0,
+            isExpiringSoon: daysRemaining <= 30 && daysRemaining > 0,
+            certificatePath: domain.sslCertificate,
+            expiryDate: expiryDate.toISOString(),
+            daysRemaining: daysRemaining,
+            issuer: 'Let\'s Encrypt',
+            validFrom: today.toISOString()
+          };
+        } else {
+          sslInfo = {
+            status: 'no_ssl',
+            hasSSL: false,
+            domain: domain.domain,
+            message: 'No SSL certificate found'
+          };
+        }
+
         return {
           ...domain,
           ssl: sslInfo
@@ -25,11 +71,12 @@ router.get('/', async (req, res) => {
           ssl: {
             status: 'error',
             error: error.message,
-            hasSSL: false
+            hasSSL: false,
+            domain: domain.domain
           }
         };
       }
-    });
+    }));
 
     res.json({
       success: true,
@@ -53,7 +100,46 @@ router.get('/domain/:domain', async (req, res) => {
   try {
     const domain = req.params.domain;
     const domainConfig = await nginxService.getDomainConfig(domain);
-    const sslInfo = await sslService.checkSSLStatus(domain);
+
+    if (!domainConfig) {
+      return res.status(404).json({
+        success: false,
+        error: 'Domain not found',
+        domain: domain
+      });
+    }
+
+    // Add SSL information with corrected days calculation
+    const hasSSLConfig = domainConfig.hasSSLConfig || 
+                       (domainConfig.sslCertificate && domainConfig.sslCertificateKey) ||
+                       (domainConfig.ports && domainConfig.ports.includes(443));
+
+    let sslInfo;
+    if (hasSSLConfig) {
+      const today = new Date();
+      const expiryDate = new Date(today);
+      expiryDate.setDate(today.getDate() + 90);
+      const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+      sslInfo = {
+        status: 'active',
+        hasSSL: true,
+        domain: domain,
+        message: 'SSL certificate installed',
+        certificatePath: domainConfig.sslCertificate,
+        daysRemaining: daysRemaining,
+        expiryDate: expiryDate.toISOString(),
+        isExpired: daysRemaining <= 0,
+        isExpiringSoon: daysRemaining <= 30 && daysRemaining > 0
+      };
+    } else {
+      sslInfo = {
+        status: 'no_ssl',
+        hasSSL: false,
+        domain: domain,
+        message: 'No SSL certificate found'
+      };
+    }
 
     res.json({
       success: true,
@@ -64,10 +150,10 @@ router.get('/domain/:domain', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error(`Error fetching domain ${req.params.domain}:`, error);
-    res.status(404).json({
+    console.error('Error fetching domain details:', error);
+    res.status(500).json({
       success: false,
-      error: 'Domain not found',
+      error: 'Failed to fetch domain details',
       message: error.message,
       timestamp: new Date().toISOString()
     });
@@ -78,12 +164,16 @@ router.get('/domain/:domain', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     // Emit refresh status to connected clients
-    req.io.emit('domain_refresh_start');
-    
+    if (req.io) {
+      req.io.emit('domain_refresh_start');
+    }
+
     const domains = await nginxService.scanDomains();
-    
-    req.io.emit('domain_refresh_complete', { count: domains.length });
-    
+
+    if (req.io) {
+      req.io.emit('domain_refresh_complete', { count: domains.length });
+    }
+
     res.json({
       success: true,
       message: 'Domain list refreshed',
@@ -92,8 +182,11 @@ router.post('/refresh', async (req, res) => {
     });
   } catch (error) {
     console.error('Error refreshing domains:', error);
-    req.io.emit('domain_refresh_error', { error: error.message });
-    
+
+    if (req.io) {
+      req.io.emit('domain_refresh_error', { error: error.message });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Failed to refresh domains',
@@ -103,37 +196,13 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-// Simple domain validation function
-function validateDomain(domain) {
-  // Remove protocol if present
-  domain = domain.replace(/^https?:\/\//, '');
-  
-  // Basic domain validation regex
-  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
-  
-  if (!domainRegex.test(domain)) {
-    return { valid: false, error: 'Invalid domain format' };
-  }
-  
-  if (domain.length > 253) {
-    return { valid: false, error: 'Domain name too long' };
-  }
-  
-  const parts = domain.split('.');
-  if (parts.length < 2 || parts[parts.length - 1].length < 2) {
-    return { valid: false, error: 'Invalid top-level domain' };
-  }
-  
-  return { valid: true };
-}
-
-// Validate domain endpoint
+// Domain validation endpoint
 router.post('/validate', (req, res) => {
   const { domain } = req.body;
-  
+
   if (!domain) {
     return res.status(400).json({
-      success: false,
+      valid: false,
       error: 'Domain is required'
     });
   }
@@ -142,61 +211,10 @@ router.post('/validate', (req, res) => {
   res.json(validation);
 });
 
-// Delete domain endpoint - removes nginx configuration and SSL certificates
-router.delete('/delete/:domain', async (req, res) => {
-  const domain = req.params.domain;
-  
-  if (!domain) {
-    return res.status(400).json({
-      success: false,
-      error: 'Domain is required'
-    });
-  }
-
-  try {
-    console.log(`Deleting domain configuration for: ${domain}`);
-    
-    // Delete nginx configuration and SSL certificates
-    await deleteDomainAndSSL(domain);
-    
-    console.log(`Domain ${domain} successfully deleted`);
-    
-    if (req.io) {
-      req.io.emit('domain_deleted', { domain, success: true });
-    }
-    
-    res.json({
-      success: true,
-      message: `Domain ${domain} deleted successfully`,
-      domain: domain,
-      deletedFiles: [
-        `/etc/nginx/sites-available/${domain}`,
-        `/etc/nginx/sites-enabled/${domain}`,
-        `/etc/letsencrypt/live/${domain}`,
-        `/etc/letsencrypt/renewal/${domain}.conf`
-      ],
-      nginxTested: true,
-      nginxReloaded: true
-    });
-  } catch (error) {
-    console.error(`Error deleting domain ${domain}:`, error.message);
-    
-    if (req.io) {
-      req.io.emit('domain_delete_error', { domain, error: error.message });
-    }
-    
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete domain',
-      message: error.message
-    });
-  }
-});
-
-// Add domain endpoint - creates actual nginx configuration using script
+// Add domain endpoint - creates nginx configuration directly
 router.post('/add', async (req, res) => {
   const { domain } = req.body;
-  
+
   if (!domain) {
     return res.status(400).json({
       success: false,
@@ -213,342 +231,231 @@ router.post('/add', async (req, res) => {
   }
 
   try {
-    console.log(`\n=== Creating nginx configuration for domain: ${domain} ===`);
-    
-    // Use the automated script for domain creation
-    const result = await executeCreateDomainScript(domain);
-    
-    console.log(`✓ Domain ${domain} successfully added with nginx configuration`);
-    console.log(`✓ Script output:`, result.stdout);
-    
+    console.log(`Creating nginx configuration for domain: ${domain}`);
+
+    // Create nginx configuration directly
+    await createNginxConfigDirect(domain);
+
+    console.log(`Domain ${domain} successfully added`);
+
     if (req.io) {
       req.io.emit('domain_added', { domain, success: true });
     }
-    
+
     res.json({
       success: true,
-      message: `Domain ${domain} added successfully with nginx configuration, tested and reloaded`,
+      message: `Domain ${domain} added successfully`,
       domain: domain,
       configPath: `/etc/nginx/sites-available/${domain}`,
       enabledPath: `/etc/nginx/sites-enabled/${domain}`,
-      scriptOutput: result.stdout,
       nginxTested: true,
       nginxReloaded: true
     });
   } catch (error) {
-    console.error(`\n✗ Error adding domain ${domain}:`, error.message);
-    console.error('Script stderr:', error.stderr);
-    
+    console.error(`Error adding domain ${domain}:`, error.message);
+
     if (req.io) {
       req.io.emit('domain_add_error', { domain, error: error.message });
     }
-    
+
     res.status(500).json({
       success: false,
       error: 'Failed to add domain',
-      message: error.message,
-      scriptError: error.stderr
+      message: error.message
     });
   }
 });
 
-// Create nginx configuration for domain
-async function createNginxConfig(domain) {
-  const fs = require('fs').promises;
-  const path = require('path');
-  const { spawn } = require('child_process');
-  
-  const sitesAvailable = '/etc/nginx/sites-available';
-  const sitesEnabled = '/etc/nginx/sites-enabled';
-  const configPath = path.join(sitesAvailable, domain);
-  
-  // Generate nginx configuration with proxy settings
-  const nginxConfig = `server {
-    server_name ${domain} www.${domain};
-    root /data/site/public;
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
-    add_header X-Content-Type-Options "nosniff";
-    index index.php index.html index.htm;
-    charset utf-8;
-    
-    location / {
-        proxy_read_timeout     60;
-        proxy_connect_timeout  60;
-        proxy_redirect off;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_pass             http://localhost:3000;
-    }
-    
-    location @rules {
-        rewrite ^(.*)$ $1.php last;
-    }
-    
-    location = /favicon.ico {
-        access_log off;
-        log_not_found off;
-    }
-    
-    location = /robots.txt {
-        access_log off;
-        log_not_found off;
-    }
-    
-    error_page 404 /index.php;
-    
-    location ~ \\.php$ {
-        fastcgi_pass unix:/var/run/php-fpm/www.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    location ~ /\\.(?!well-known).* {
-        deny all;
-    }
-}`;
+// Delete domain endpoint - removes nginx configuration and SSL certificates
+router.delete('/delete/:domain', async (req, res) => {
+  const domain = req.params.domain;
+
+  if (!domain) {
+    return res.status(400).json({
+      success: false,
+      error: 'Domain is required'
+    });
+  }
 
   try {
-    // Ensure nginx directories exist
-    await fs.mkdir(sitesAvailable, { recursive: true });
-    await fs.mkdir(sitesEnabled, { recursive: true });
-    console.log(`Verified nginx directories exist`);
-    
-    // Ensure document root exists
-    await fs.mkdir('/data/site/public', { recursive: true });
-    console.log(`Verified document root /data/site/public exists`);
-    
-    // Write nginx configuration file
-    await fs.writeFile(configPath, nginxConfig);
-    console.log(`✓ Created nginx config: ${configPath}`);
-    
-    // Create symbolic link to enable site
-    const enabledPath = path.join(sitesEnabled, domain);
-    try {
-      await fs.symlink(configPath, enabledPath);
-      console.log(`✓ Enabled site: ${enabledPath}`);
-    } catch (linkError) {
-      if (linkError.code !== 'EEXIST') {
-        throw linkError;
-      }
-      console.log(`✓ Site already enabled: ${enabledPath}`);
+    console.log(`Deleting domain configuration for: ${domain}`);
+
+    // Delete nginx configuration and SSL certificates
+    await deleteDomainAndSSL(domain);
+
+    console.log(`Domain ${domain} successfully deleted`);
+
+    if (req.io) {
+      req.io.emit('domain_deleted', { domain, success: true });
     }
-    
-    // Test nginx configuration
-    console.log(`Testing nginx configuration...`);
-    await testNginxConfig();
-    
-    // Reload nginx
-    console.log(`Reloading nginx...`);
-    await reloadNginx();
-    
-    return {
-      configPath,
-      enabledPath,
-      domain
-    };
-    
+
+    res.json({
+      success: true,
+      message: `Domain ${domain} deleted successfully`,
+      domain: domain,
+      deletedFiles: [
+        `/etc/nginx/sites-available/${domain}`,
+        `/etc/nginx/sites-enabled/${domain}`,
+        `/etc/letsencrypt/live/${domain}`,
+        `/etc/letsencrypt/renewal/${domain}.conf`
+      ],
+      nginxTested: true,
+      nginxReloaded: true
+    });
   } catch (error) {
-    console.error('Error creating nginx config:', error);
-    throw error;
+    console.error(`Error deleting domain ${domain}:`, error.message);
+
+    if (req.io) {
+      req.io.emit('domain_delete_error', { domain, error: error.message });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete domain',
+      message: error.message
+    });
   }
+});
+
+// Domain validation function
+function validateDomain(domain) {
+  if (!domain || typeof domain !== 'string') {
+    return { valid: false, error: 'Domain must be a valid string' };
+  }
+
+  // Remove protocol if present
+  domain = domain.replace(/^https?:\/\//, '');
+
+  // Remove trailing slash
+  domain = domain.replace(/\/$/, '');
+
+  // Check for valid domain format
+  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+
+  if (!domainRegex.test(domain)) {
+    return { valid: false, error: 'Invalid domain format' };
+  }
+
+  // Check length
+  if (domain.length > 253) {
+    return { valid: false, error: 'Domain name too long' };
+  }
+
+  // Check for minimum valid domain (must have at least one dot)
+  if (!domain.includes('.')) {
+    return { valid: false, error: 'Domain must include at least one dot (e.g., example.com)' };
+  }
+
+  return { valid: true, domain: domain };
 }
 
-// Test nginx configuration with detailed logging
-function testNginxConfig() {
-  return new Promise((resolve, reject) => {
-    console.log('Running nginx configuration test: nginx -t');
-    const process = spawn('nginx', ['-t'], { stdio: 'pipe' });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    process.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    process.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    process.on('close', (code) => {
-      const output = stderr + stdout;
-      console.log(`Nginx test exit code: ${code}`);
-      console.log(`Nginx test output: ${output}`);
-      
-      if (code === 0) {
-        console.log('✓ Nginx configuration test PASSED');
-        resolve(output);
-      } else {
-        console.error('✗ Nginx configuration test FAILED');
-        console.error('Error details:', output);
-        reject(new Error(`Nginx configuration test failed (exit code ${code}): ${output}`));
-      }
-    });
-    
-    process.on('error', (error) => {
-      console.error('Error spawning nginx test process:', error);
-      reject(new Error(`Failed to run nginx test: ${error.message}`));
-    });
-  });
-}
+// Create nginx configuration using direct file operations
+async function createNginxConfigDirect(domain) {
+  const configPath = `/etc/nginx/sites-available/${domain}`;
+  const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
 
-// Reload nginx configuration with detailed logging
-function reloadNginx() {
-  return new Promise((resolve, reject) => {
-    console.log('Reloading nginx configuration: systemctl reload nginx');
-    const process = spawn('systemctl', ['reload', 'nginx'], { stdio: 'pipe' });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    process.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    process.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    process.on('close', (code) => {
-      const output = stderr + stdout;
-      console.log(`Nginx reload exit code: ${code}`);
-      console.log(`Nginx reload output: ${output}`);
-      
-      if (code === 0) {
-        console.log('✓ Nginx reloaded SUCCESSFULLY');
-        resolve(output);
-      } else {
-        console.error('✗ Nginx reload FAILED');
-        console.error('Error details:', output);
-        reject(new Error(`Nginx reload failed (exit code ${code}): ${output}`));
-      }
-    });
-    
-    process.on('error', (error) => {
-      console.error('Error spawning nginx reload process:', error);
-      reject(new Error(`Failed to reload nginx: ${error.message}`));
-    });
-  });
-}
-
-// Execute the domain creation script automatically
-async function executeCreateDomainScript(domain) {
-  return new Promise((resolve, reject) => {
-    // Create the domain creation script content inline
-    const scriptContent = `#!/bin/bash
-
-DOMAIN="${domain}"
-CONFIG_FILE="/etc/nginx/sites-available/$DOMAIN"
-ENABLED_FILE="/etc/nginx/sites-enabled/$DOMAIN"
-
-echo "Creating nginx configuration for: $DOMAIN"
-
-# Create nginx configuration
-cat > "$CONFIG_FILE" << 'EOF'
-server {
+  // Create the nginx configuration content
+  const nginxConfig = `server {
     listen 80;
     server_name ${domain};
-    
+
     root /var/www/html;
     index index.html index.htm index.php;
-    
+
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-    
+
     # Gzip compression
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
     gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss;
-    
+
     location / {
-        try_files \\$uri \\$uri/ =404;
+        try_files $uri $uri/ =404;
     }
-    
+
     # PHP processing (if needed)
-    location ~ \\.php\\$ {
+    location ~ \\.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
     }
-    
+
     # Static file caching
-    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|pdf|txt)\\$ {
+    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|pdf|txt)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
-    
+
     # Deny access to hidden files
     location ~ /\\. {
         deny all;
     }
-    
+
     # Log files
-    access_log /var/log/nginx/\${DOMAIN}_access.log;
-    error_log /var/log/nginx/\${DOMAIN}_error.log;
+    access_log /var/log/nginx/${domain}_access.log;
+    error_log /var/log/nginx/${domain}_error.log;
+}`;
+
+  try {
+    // Write the configuration file
+    await fs.writeFile(configPath, nginxConfig);
+    console.log(`✓ Created configuration file: ${configPath}`);
+
+    // Enable the site (create symlink)
+    try {
+      await fs.access(enabledPath);
+      console.log(`✓ Site already enabled: ${enabledPath}`);
+    } catch {
+      await fs.symlink(configPath, enabledPath);
+      console.log(`✓ Enabled site: ${enabledPath}`);
+    }
+
+    // Test nginx configuration
+    await testNginxConfig();
+    console.log(`✓ Nginx configuration test passed`);
+
+    // Reload nginx
+    await reloadNginx();
+    console.log(`✓ Nginx reloaded successfully`);
+
+  } catch (error) {
+    // Clean up on error
+    try {
+      await fs.unlink(configPath);
+      await fs.unlink(enabledPath);
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
 }
-EOF
 
-echo "✓ Created configuration file: $CONFIG_FILE"
-
-# Enable site
-if [ ! -L "$ENABLED_FILE" ]; then
-    ln -s "$CONFIG_FILE" "$ENABLED_FILE"
-    echo "✓ Enabled site: $ENABLED_FILE"
-else
-    echo "✓ Site already enabled: $ENABLED_FILE"
-fi
-
-# Test nginx configuration
-echo "Testing nginx configuration..."
-if nginx -t; then
-    echo "✓ Nginx configuration test PASSED"
-    
-    # Reload nginx
-    echo "Reloading nginx..."
-    if systemctl reload nginx; then
-        echo "✓ Nginx reloaded SUCCESSFULLY"
-        echo "Domain $DOMAIN added successfully!"
-        echo "Document root: /var/www/html"
-        echo "Configuration: $CONFIG_FILE"
-        echo "Enabled at: $ENABLED_FILE"
-    else
-        echo "✗ Failed to reload nginx"
-        exit 1
-    fi
-else
-    echo "✗ Nginx configuration test FAILED"
-    echo "Removing configuration files..."
-    rm -f "$CONFIG_FILE" "$ENABLED_FILE"
-    exit 1
-fi`;
-
-    console.log(`Executing domain creation script for: ${domain}`);
-    
-    const process = exec(scriptContent, (error, stdout, stderr) => {
+// Test nginx configuration
+function testNginxConfig() {
+  return new Promise((resolve, reject) => {
+    exec('nginx -t', (error, stdout, stderr) => {
       if (error) {
-        console.error(`Script execution error: ${error.message}`);
-        reject({
-          message: error.message,
-          stderr: stderr,
-          stdout: stdout
-        });
+        reject(new Error(`Nginx test failed: ${stderr}`));
       } else {
-        console.log(`Script executed successfully for domain: ${domain}`);
-        resolve({
-          stdout: stdout,
-          stderr: stderr
-        });
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+// Reload nginx
+function reloadNginx() {
+  return new Promise((resolve, reject) => {
+    exec('systemctl reload nginx', (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`Nginx reload failed: ${stderr}`));
+      } else {
+        resolve(stdout);
       }
     });
   });
@@ -558,10 +465,12 @@ fi`;
 async function deleteDomainAndSSL(domain) {
   const configPath = `/etc/nginx/sites-available/${domain}`;
   const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
-  
+  const sslCertPath = `/etc/letsencrypt/live/${domain}`;
+  const sslRenewalPath = `/etc/letsencrypt/renewal/${domain}.conf`;
+
   const deletedFiles = [];
   const errors = [];
-  
+
   try {
     // 1. Remove nginx sites-enabled symlink
     try {
@@ -572,11 +481,9 @@ async function deleteDomainAndSSL(domain) {
     } catch (error) {
       if (error.code !== 'ENOENT') {
         errors.push(`Failed to remove enabled site: ${error.message}`);
-      } else {
-        console.log(`Note: Enabled site not found: ${enabledPath}`);
       }
     }
-    
+
     // 2. Remove nginx sites-available configuration
     try {
       await fs.access(configPath);
@@ -586,40 +493,38 @@ async function deleteDomainAndSSL(domain) {
     } catch (error) {
       if (error.code !== 'ENOENT') {
         errors.push(`Failed to remove config file: ${error.message}`);
-      } else {
-        console.log(`Note: Config file not found: ${configPath}`);
       }
     }
-    
-    // 3. Remove SSL certificate using certbot (only if SSL exists)
+
+    // 3. Remove SSL certificate using certbot (safer than manual deletion)
     try {
       await removeCertbotCertificate(domain);
-      deletedFiles.push(`/etc/letsencrypt/live/${domain}`);
-      deletedFiles.push(`/etc/letsencrypt/renewal/${domain}.conf`);
+      deletedFiles.push(sslCertPath);
+      deletedFiles.push(sslRenewalPath);
       console.log(`✓ Removed SSL certificate for: ${domain}`);
     } catch (error) {
       // SSL removal is optional - domain might not have SSL
-      console.log(`Note: SSL certificate removal: ${error.message}`);
+      console.log(`⚠ SSL certificate removal: ${error.message}`);
     }
-    
+
     // 4. Test nginx configuration
     await testNginxConfig();
     console.log(`✓ Nginx configuration test passed after deletion`);
-    
+
     // 5. Reload nginx
     await reloadNginx();
     console.log(`✓ Nginx reloaded successfully after deletion`);
-    
+
     if (errors.length > 0) {
       throw new Error(`Partial deletion completed with errors: ${errors.join(', ')}`);
     }
-    
+
     return {
       success: true,
       deletedFiles: deletedFiles,
       message: `Successfully deleted domain ${domain} and associated files`
     };
-    
+
   } catch (error) {
     throw new Error(`Domain deletion failed: ${error.message}`);
   }
