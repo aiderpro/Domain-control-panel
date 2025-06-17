@@ -30,33 +30,68 @@ class SSLManager {
   }
 
   async init() {
-    // Wait for DOM to be completely ready
-    if (document.readyState === 'loading') {
-      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+    try {
+      console.log('SSL Manager initializing...');
+      
+      // Wait for DOM to be completely ready
+      if (document.readyState === 'loading') {
+        console.log('Waiting for DOM to be ready...');
+        await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+      }
+      console.log('DOM is ready');
+      
+      // Check authentication status first
+      console.log('Checking authentication...');
+      const authStatus = await this.checkAuthentication();
+      console.log('Auth status:', authStatus);
+      
+      if (!authStatus.authenticated) {
+        console.log('Not authenticated, redirecting to login...');
+        window.location.href = '/login.html';
+        return;
+      }
+      
+      this.isAuthenticated = true;
+      this.currentUser = authStatus.user;
+      console.log('Authenticated as:', this.currentUser);
+      
+      // Initialize UI components in order
+      console.log('Rendering app UI...');
+      this.renderApp();
+      this.renderDashboard();
+      
+      // Initialize Socket.IO after authentication
+      console.log('Initializing Socket.IO...');
+      this.initSocket();
+      
+      // Load initial data
+      console.log('Loading domains...');
+      this.loadDomains();
+      
+      // Set up event listeners
+      console.log('Binding events...');
+      this.bindEvents();
+      
+      console.log('SSL Manager initialization complete');
+    } catch (error) {
+      console.error('SSL Manager initialization failed:', error);
+      
+      // Show error message to user
+      const appContainer = document.getElementById('app');
+      if (appContainer) {
+        appContainer.innerHTML = `
+          <div class="container mt-5">
+            <div class="alert alert-danger">
+              <h4>Application Error</h4>
+              <p>Failed to initialize SSL Manager: ${error.message}</p>
+              <button class="btn btn-primary" onclick="window.location.reload()">
+                Reload Page
+              </button>
+            </div>
+          </div>
+        `;
+      }
     }
-    
-    // Check authentication status first
-    const authStatus = await this.checkAuthentication();
-    if (!authStatus.authenticated) {
-      window.location.href = '/login.html';
-      return;
-    }
-    
-    this.isAuthenticated = true;
-    this.currentUser = authStatus.user;
-    
-    // Initialize UI components in order
-    this.renderApp();
-    this.renderDashboard();
-    
-    // Initialize Socket.IO after authentication
-    this.initSocket();
-    
-    // Load initial data
-    this.loadDomains();
-    
-    // Set up event listeners
-    this.bindEvents();
   }
 
   async ensureDOMReady() {
