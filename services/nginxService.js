@@ -50,10 +50,10 @@ class NginxService {
     } catch (error) {
       console.error('Error scanning nginx domains:', error);
       
-      // If nginx directory doesn't exist, return demo data for testing
+      // Return empty array if nginx directory doesn't exist - no fake data
       if (error.code === 'ENOENT') {
-        console.log('Nginx directory not found, returning demo domains for testing');
-        return this.getDemoDomains();
+        console.log('Nginx directory not found, returning empty domain list');
+        return [];
       }
       
       throw new Error(`Failed to scan nginx domains: ${error.message}`);
