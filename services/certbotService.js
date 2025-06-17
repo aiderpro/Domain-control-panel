@@ -97,6 +97,8 @@ class CertbotService {
           '--nginx',
           '--non-interactive',
           '--agree-tos',
+          '--expand',  // Allow expanding existing certificates
+          '--allow-subset-of-names',  // Allow partial success if some domains fail
           '--email', email,
           '-d', domain,
           '-d', `www.${domain}`

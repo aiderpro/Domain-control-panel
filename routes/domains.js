@@ -21,62 +21,104 @@ router.get('/', async (req, res) => {
   try {
     const domains = await nginxService.scanDomains();
 
-    // Enhance domains with SSL information
-    const domainsWithSSL = await Promise.all(domains.map(async (domain) => {
-      try {
-        // Check if domain has SSL configuration in nginx
-        const hasSSLConfig = domain.hasSSLConfig || 
-                           (domain.sslCertificate && domain.sslCertificateKey) ||
-                           (domain.ports && domain.ports.includes(443));
+    // Process domains in batches for better SSL statistics accuracy
+    const batchSize = 50; // Process 50 domains at a time
+    const domainsWithSSL = [];
+    
+    for (let i = 0; i < domains.length; i += batchSize) {
+      const batch = domains.slice(i, i + batchSize);
+      
+      const batchResults = await Promise.all(batch.map(async (domain) => {
+        try {
+          // Check if domain has SSL configuration in nginx
+          const hasSSLConfig = domain.hasSSLConfig || 
+                             (domain.sslCertificate && domain.sslCertificateKey) ||
+                             (domain.ports && domain.ports.includes(443));
 
-        let sslInfo;
-        if (hasSSLConfig) {
-          // Get real SSL certificate information
+          let sslInfo;
+          
+          // Always check SSL status regardless of nginx config
           sslInfo = await sslService.checkSSLStatus(domain.domain);
           
-          // If no real SSL found but nginx config indicates SSL, mark as configured but no certificate
           if (!sslInfo || !sslInfo.hasSSL) {
-            sslInfo = {
-              status: 'configured_no_cert',
+            if (hasSSLConfig) {
+              // SSL configured in nginx but no valid certificate
+              sslInfo = {
+                status: 'configured_no_cert',
+                hasSSL: false,
+                domain: domain.domain,
+                message: 'SSL configured in nginx but no valid certificate found',
+                isExpired: false,
+                isExpiringSoon: false,
+                certificatePath: domain.sslCertificate,
+                daysUntilExpiry: 0
+              };
+            } else {
+              // No SSL configuration or certificate
+              sslInfo = {
+                status: 'no_ssl',
+                hasSSL: false,
+                domain: domain.domain,
+                message: 'No SSL certificate found',
+                isExpired: false,
+                isExpiringSoon: false,
+                daysUntilExpiry: 0
+              };
+            }
+          }
+          
+          // Ensure all required fields are present for accurate statistics
+          if (sslInfo) {
+            // Initialize all required fields
+            sslInfo.hasSSL = sslInfo.hasSSL || false;
+            sslInfo.isExpired = sslInfo.isExpired || false;
+            sslInfo.isExpiringSoon = sslInfo.isExpiringSoon || false;
+            sslInfo.daysUntilExpiry = sslInfo.daysUntilExpiry || 0;
+            
+            // Recalculate expiry status for accuracy
+            if (sslInfo.hasSSL && typeof sslInfo.daysUntilExpiry === 'number') {
+              sslInfo.isExpired = sslInfo.daysUntilExpiry < 0;
+              sslInfo.isExpiringSoon = sslInfo.daysUntilExpiry <= 30 && sslInfo.daysUntilExpiry >= 0;
+              
+              // Update status based on expiry
+              if (sslInfo.isExpired) {
+                sslInfo.status = 'expired';
+              } else if (sslInfo.isExpiringSoon) {
+                sslInfo.status = 'expiring_soon';
+              } else {
+                sslInfo.status = 'active';
+              }
+            }
+          }
+
+          return {
+            ...domain,
+            ssl: sslInfo
+          };
+        } catch (error) {
+          console.error(`Error checking SSL for ${domain.domain}:`, error);
+          return {
+            ...domain,
+            ssl: {
+              status: 'error',
+              error: error.message,
               hasSSL: false,
               domain: domain.domain,
-              message: 'SSL configured in nginx but no valid certificate found',
               isExpired: false,
               isExpiringSoon: false,
-              certificatePath: domain.sslCertificate,
               daysUntilExpiry: 0
-            };
-          }
-        } else {
-          // No SSL configuration found
-          sslInfo = await sslService.checkSSLStatus(domain.domain);
-          if (!sslInfo || !sslInfo.hasSSL) {
-            sslInfo = {
-              status: 'no_ssl',
-              hasSSL: false,
-              domain: domain.domain,
-              message: 'No SSL certificate found'
-            };
-          }
+            }
+          };
         }
-
-        return {
-          ...domain,
-          ssl: sslInfo
-        };
-      } catch (error) {
-        console.error(`Error checking SSL for ${domain.domain}:`, error);
-        return {
-          ...domain,
-          ssl: {
-            status: 'error',
-            error: error.message,
-            hasSSL: false,
-            domain: domain.domain
-          }
-        };
+      }));
+      
+      domainsWithSSL.push(...batchResults);
+      
+      // Small delay between batches to prevent overwhelming the system
+      if (i + batchSize < domains.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-    }));
+    }
 
     res.json({
       success: true,

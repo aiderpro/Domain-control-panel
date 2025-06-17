@@ -23,7 +23,7 @@ class SSLService {
 
     console.log(`Checking AUTHENTIC SSL status for ${domain}...`);
     
-    // Method 1: Try certificate files first (most reliable)
+    // Method 1: Try certificate files first (most reliable for accurate statistics)
     try {
       const fileSSLData = await this.getSSLFromFiles(domain);
       if (fileSSLData && fileSSLData.hasSSL) {
@@ -33,6 +33,21 @@ class SSLService {
       }
     } catch (error) {
       console.log(`File SSL check failed for ${domain}:`, error.message);
+    }
+
+    // Method 1.5: Check if certificate exists for domain without www prefix
+    if (domain.startsWith('www.')) {
+      try {
+        const noDomainData = await this.getSSLFromFiles(domain.replace('www.', ''));
+        if (noDomainData && noDomainData.hasSSL) {
+          console.log(`AUTHENTIC file SSL found for ${domain} via non-www: expires ${noDomainData.expiryDate}, ${noDomainData.daysUntilExpiry} days remaining`);
+          const result = { ...noDomainData, domain }; // Return with original domain
+          this.cacheSSLResult(domain, result);
+          return result;
+        }
+      } catch (error) {
+        console.log(`Non-www file SSL check failed for ${domain}:`, error.message);
+      }
     }
 
     // Method 2: Live SSL connection with timeout protection
