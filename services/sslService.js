@@ -61,54 +61,65 @@ class SSLService {
    */
   async getLiveSSLStatus(domain) {
     try {
-      // Your exact OpenSSL command: openssl s_client -connect domain:443 -servername domain 2>/dev/null | openssl x509 -noout -enddate
-      const command = `timeout 15s bash -c "openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -enddate"`;
-      console.log(`Running live SSL check for ${domain}`);
+      // Simplified approach: use Node.js TLS to get certificate info
+      const tls = require('tls');
+      const { promisify } = require('util');
       
-      const { stdout } = await execAsync(command);
-      
-      if (!stdout || !stdout.trim()) {
-        console.log(`No SSL data returned for ${domain}`);
-        return null;
-      }
-      
-      console.log(`Live SSL output for ${domain}:`, stdout.trim());
-      
-      // Parse the enddate output: "notAfter=Jul 23 09:13:49 2025 GMT"
-      const endDateMatch = stdout.match(/notAfter=(.+)/);
-      if (!endDateMatch) {
-        console.log(`Could not parse enddate for ${domain}`);
-        return null;
-      }
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`SSL check timeout for ${domain}`));
+        }, 10000);
 
-      const expiryDate = new Date(endDateMatch[1]);
-      if (isNaN(expiryDate.getTime())) {
-        console.log(`Invalid expiry date for ${domain}: ${endDateMatch[1]}`);
-        return null;
-      }
+        const socket = tls.connect(443, domain, {
+          servername: domain,
+          rejectUnauthorized: false
+        }, () => {
+          clearTimeout(timeout);
+          
+          const cert = socket.getPeerCertificate();
+          socket.destroy();
+          
+          if (!cert || !cert.valid_to) {
+            resolve(null);
+            return;
+          }
 
-      // Calculate remaining days
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const expiry = new Date(expiryDate);
-      expiry.setHours(0, 0, 0, 0);
-      
-      const timeDiff = expiry.getTime() - now.getTime();
-      const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+          const expiryDate = new Date(cert.valid_to);
+          if (isNaN(expiryDate.getTime())) {
+            resolve(null);
+            return;
+          }
 
-      console.log(`AUTHENTIC SSL for ${domain}: expires ${expiryDate.toISOString()}, ${daysRemaining} days remaining`);
+          // Calculate remaining days
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          const expiry = new Date(expiryDate);
+          expiry.setHours(0, 0, 0, 0);
+          
+          const timeDiff = expiry.getTime() - now.getTime();
+          const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
 
-      return {
-        hasSSL: true,
-        status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
-        domain,
-        expiryDate: expiryDate.toISOString(),
-        daysUntilExpiry: daysRemaining,
-        isExpired: daysRemaining < 0,
-        isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
-        issuer: 'Let\'s Encrypt',
-        source: 'live_connection'
-      };
+          console.log(`AUTHENTIC SSL for ${domain}: expires ${expiryDate.toISOString()}, ${daysRemaining} days remaining`);
+
+          resolve({
+            hasSSL: true,
+            status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
+            domain,
+            expiryDate: expiryDate.toISOString(),
+            daysUntilExpiry: daysRemaining,
+            isExpired: daysRemaining < 0,
+            isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
+            issuer: cert.issuer?.O || 'Unknown',
+            source: 'tls_connection'
+          });
+        });
+
+        socket.on('error', (error) => {
+          clearTimeout(timeout);
+          console.log(`SSL connection failed for ${domain}:`, error.message);
+          resolve(null);
+        });
+      });
       
     } catch (error) {
       console.log(`Failed to get live SSL for ${domain}:`, error.message);
