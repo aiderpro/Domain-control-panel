@@ -45,6 +45,18 @@ class SSLManager {
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
 
+    // Ensure app container exists
+    let attempts = 0;
+    while (!document.getElementById('app') && attempts < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+
+    if (!document.getElementById('app')) {
+      console.error('App container not found after waiting');
+      return;
+    }
+
     // Check authentication status first
     const authStatus = await this.checkAuthentication();
     if (!authStatus.authenticated) {
@@ -680,7 +692,11 @@ class SSLManager {
   }
 
   renderApp() {
-    const root = document.getElementById('root');
+    const root = document.getElementById('app');
+    if (!root) {
+      console.error('App container element not found');
+      return;
+    }
     root.innerHTML = `
       <div class="App">
         <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
