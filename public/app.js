@@ -938,6 +938,12 @@ class SSLManager {
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="mb-0">Domain Management</h5>
               <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="sslManager.checkSSLQueue()">
+                  <i class="fas fa-tasks me-1"></i> Queue Status
+                </button>
+                <button class="btn btn-outline-warning btn-sm" onclick="sslManager.cleanupCertbot()">
+                  <i class="fas fa-broom me-1"></i> Cleanup
+                </button>
                 <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
                   <i class="fas fa-sync-alt me-1"></i> Refresh
                 </button>

@@ -162,6 +162,7 @@ Changelog:
 - June 17, 2025: FIXED SSL DATA REFRESH AFTER RENEWALS - SSL certificate data now properly refreshes after Let's Encrypt renewals, certificate files checked first for most accurate post-renewal data, automatic domain data refresh triggers after SSL operations, manual refresh button added for immediate SSL data updates
 - June 17, 2025: COMPLETELY FIXED SSL EXPIRY DATE ISSUES - Eliminated all hardcoded demo data showing September 15th dates, replaced SSL service with Node.js TLS-based authentic certificate fetching, system now shows real expiry dates (e.g., a3cabscochin.com correctly shows July 23, 2025 with 36 days remaining), fast and reliable SSL checking without timeout issues
 - June 17, 2025: IMPLEMENTED COMPREHENSIVE PAGINATION - Added full pagination support with 25 domains per page, smart page navigation with previous/next controls, numbered page buttons with ellipsis for large datasets, automatic pagination reset on search/filter operations, responsive design integrated with existing sorting and filtering functionality
+- June 17, 2025: SOLVED "ANOTHER INSTANCE OF CERTBOT RUNNING" ERROR - Implemented comprehensive queue management system with process detection, automatic retry logic with 5 retry attempts and 30-second delays, processing queue tracking to prevent duplicate operations, force cleanup functionality for stuck processes, lock file detection and cleanup, temporary directory management, frontend controls for queue status monitoring and manual cleanup operations
 ```
 
 ## User Preferences
