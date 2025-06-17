@@ -8,16 +8,18 @@ class NginxConfigManager {
   constructor() {
     this.sitesAvailable = process.env.NGINX_SITES_PATH || '/etc/nginx/sites-available';
     this.sitesEnabled = '/etc/nginx/sites-enabled';
-    // Always use /var/www/html as document root for nginx configs
-    this.documentRoot = '/var/www/html';
+    this.documentRoot = '/data/site/public';
   }
 
   /**
-   * Validate domain name format
+   * Validate domain name format and normalize (remove www)
    */
   validateDomain(domain) {
     // Remove protocol if present
     domain = domain.replace(/^https?:\/\//, '');
+    
+    // Remove www prefix if present
+    domain = domain.replace(/^www\./, '');
     
     // Basic domain validation regex
     const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -38,7 +40,7 @@ class NginxConfigManager {
       return { valid: false, error: 'Invalid top-level domain' };
     }
     
-    return { valid: true };
+    return { valid: true, domain: domain };
   }
 
   /**
@@ -64,54 +66,47 @@ class NginxConfigManager {
    */
   generateNginxConfig(domain) {
     return `server {
-    server_name ${domain} www.${domain};
-    root /data/site/public;
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
-    add_header X-Content-Type-Options "nosniff";
-    index index.php index.html index.htm;
-    charset utf-8;
-    
-    location / {
-        proxy_read_timeout     60;
-        proxy_connect_timeout  60;
-        proxy_redirect off;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_pass             http://localhost:3000;
-    }
-    
-    location @rules {
-        rewrite ^(.*)$ $1.php last;
-    }
-    
-    location = /favicon.ico {
-        access_log off;
-        log_not_found off;
-    }
-    
-    location = /robots.txt {
-        access_log off;
-        log_not_found off;
-    }
-    
-    error_page 404 /index.php;
-    
-    location ~ \\.php$ {
-        fastcgi_pass unix:/var/run/php-fpm/www.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    location ~ /\\.(?!well-known).* {
-        deny all;
-    }
+server_name ${domain} www.${domain};
+root /data/site/public;
+add_header X-Frame-Options "SAMEORIGIN";
+add_header X-XSS-Protection "1; mode=block";
+add_header X-Content-Type-Options "nosniff";
+index index.php index.html index.htm;
+charset utf-8;
+location / {
+proxy_read_timeout 60;
+proxy_connect_timeout 60;
+proxy_redirect off;
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection 'upgrade';
+proxy_cache_bypass $http_upgrade;
+proxy_set_header Host $host ;
+proxy_set_header X-Real-IP $remote_addr ;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for ;
+proxy_set_header X-Forwarded-Proto https;
+proxy_pass http://localhost:3000;
+}
+location @rules {
+rewrite ^(.)$ $1.php last;
+}
+location = /favicon.ico {
+access_log off;
+log_not_found off;
+}
+location = /robots.txt {
+access_log off;
+log_not_found off;
+}
+error_page 404 /index.php;
+location ~ .php$ {
+fastcgi_pass unix:/var/run/php-fpm/www.sock;
+fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+include fastcgi_params;
+}
+location ~ /.(?!well-known). {
+deny all;
+}
 }`;
   }
 
@@ -336,7 +331,7 @@ router.post('/add-domain', async (req, res) => {
       message: 'Validating domain name...' 
     });
 
-    // Validate domain
+    // Validate domain and normalize (removes www prefix)
     const validation = manager.validateDomain(domain);
     if (!validation.valid) {
       io.emit('domain_add_error', { domain, error: validation.error });
@@ -345,18 +340,21 @@ router.post('/add-domain', async (req, res) => {
         error: validation.error
       });
     }
+    
+    // Use the normalized domain (without www)
+    const normalizedDomain = validation.domain;
 
     // Check if domain already exists
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'checking',
       message: 'Checking if domain already exists...' 
     });
 
-    const exists = await manager.checkDomainExists(domain);
+    const exists = await manager.checkDomainExists(normalizedDomain);
     if (exists) {
       const error = 'Domain configuration already exists';
-      io.emit('domain_add_error', { domain, error });
+      io.emit('domain_add_error', { domain: normalizedDomain, error });
       return res.status(409).json({
         success: false,
         error
@@ -365,7 +363,7 @@ router.post('/add-domain', async (req, res) => {
 
     // Ensure document root exists
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'setup',
       message: 'Setting up document root...' 
     });
@@ -377,31 +375,31 @@ router.post('/add-domain', async (req, res) => {
 
     // Create nginx configuration
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'config',
       message: 'Creating nginx configuration...' 
     });
 
-    const configResult = await manager.createNginxConfig(domain);
+    const configResult = await manager.createNginxConfig(normalizedDomain);
     if (!configResult.success) {
       throw new Error(`Failed to create nginx config: ${configResult.error}`);
     }
 
     // Enable site (create symlink)
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'enabling',
       message: 'Enabling site...' 
     });
 
-    const enableResult = await manager.enableSite(domain);
+    const enableResult = await manager.enableSite(normalizedDomain);
     if (!enableResult.success) {
       throw new Error(`Failed to enable site: ${enableResult.error}`);
     }
 
     // Test nginx configuration
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'testing',
       message: 'Testing nginx configuration...' 
     });
@@ -413,7 +411,7 @@ router.post('/add-domain', async (req, res) => {
 
     // Reload nginx
     io.emit('domain_add_progress', { 
-      domain, 
+      domain: normalizedDomain, 
       stage: 'reloading',
       message: 'Reloading nginx...' 
     });
@@ -425,16 +423,17 @@ router.post('/add-domain', async (req, res) => {
 
     // Success
     io.emit('domain_add_complete', { 
-      domain, 
+      domain: normalizedDomain, 
       success: true,
-      message: 'Domain added successfully',
+      message: `Domain added successfully. Configuration includes both ${normalizedDomain} and www.${normalizedDomain}`,
       documentRoot: manager.documentRoot
     });
 
     res.json({
       success: true,
       message: 'Domain added successfully',
-      domain,
+      domain: normalizedDomain,
+      wwwDomain: `www.${normalizedDomain}`,
       documentRoot: manager.documentRoot,
       configPath: configResult.path
     });
