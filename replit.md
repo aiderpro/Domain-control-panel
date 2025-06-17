@@ -152,6 +152,9 @@ Changelog:
 - June 17, 2025: Implemented automatic www subdomain inclusion for SSL certificates on main domains (skips existing subdomains)
 - June 17, 2025: Enhanced domain validation to automatically strip www prefixes and create configurations for both domain and www subdomain
 - June 17, 2025: Updated nginx configuration template to match exact user specifications with proper formatting and security headers
+- June 17, 2025: Implemented automatic SSL autorenewal enablement - SSL autorenewal is now enabled by default for all newly installed certificates
+- June 17, 2025: Enhanced SSL renewal process to automatically handle both domain.com and www.domain.com together in single renewal operation
+- June 17, 2025: Updated both nginx and DNS SSL installation methods to include www subdomain in certificate requests by default
 ```
 
 ## User Preferences
