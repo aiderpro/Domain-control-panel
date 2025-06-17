@@ -9,8 +9,138 @@ class SSLService {
    * Check SSL certificate status for a domain
    */
   async checkSSLStatus(domain) {
-    // For demo environment, always return demo data
-    return this.getDemoSSLStatus(domain);
+    try {
+      // Try to get real SSL certificate information
+      const realSSLData = await this.getRealSSLStatus(domain);
+      if (realSSLData) {
+        return realSSLData;
+      }
+    } catch (error) {
+      console.log(`No real SSL certificate found for ${domain}, checking for certificate files...`);
+    }
+    
+    // Check for Let's Encrypt or acme.sh certificate files
+    try {
+      const fileSSLData = await this.getSSLFromFiles(domain);
+      if (fileSSLData) {
+        return fileSSLData;
+      }
+    } catch (error) {
+      console.log(`No certificate files found for ${domain}`);
+    }
+    
+    // Return no SSL found
+    return {
+      status: 'no_ssl',
+      hasSSL: false,
+      domain,
+      message: 'No SSL certificate found'
+    };
+  }
+
+  /**
+   * Get real SSL certificate information from live connection
+   */
+  async getRealSSLStatus(domain) {
+    try {
+      // Use openssl to check SSL certificate from live connection
+      const command = `echo | openssl s_client -servername ${domain} -connect ${domain}:443 2>/dev/null | openssl x509 -noout -dates -subject -issuer -fingerprint`;
+      const { stdout } = await execAsync(command);
+      
+      if (!stdout.trim()) {
+        return null;
+      }
+      
+      return this.parseSSLOutput(stdout, domain);
+    } catch (error) {
+      console.log(`Failed to get live SSL for ${domain}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get SSL certificate information from certificate files
+   */
+  async getSSLFromFiles(domain) {
+    const possiblePaths = [
+      `/etc/letsencrypt/live/${domain}/fullchain.pem`,
+      `/etc/ssl/acme/${domain}/fullchain.pem`,
+      `/root/.acme.sh/${domain}/fullchain.cer`,
+      `/etc/ssl/certs/${domain}.pem`
+    ];
+
+    for (const certPath of possiblePaths) {
+      try {
+        await fs.access(certPath);
+        const command = `openssl x509 -in ${certPath} -noout -dates -subject -issuer -fingerprint`;
+        const { stdout } = await execAsync(command);
+        
+        if (stdout.trim()) {
+          return this.parseSSLOutput(stdout, domain, certPath);
+        }
+      } catch (error) {
+        // Continue to next path
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Parse SSL certificate output from openssl command
+   */
+  parseSSLOutput(output, domain, certificatePath = null) {
+    const lines = output.split('\n');
+    let notBefore = null;
+    let notAfter = null;
+    let subject = '';
+    let issuer = '';
+    let fingerprint = '';
+
+    for (const line of lines) {
+      if (line.startsWith('notBefore=')) {
+        notBefore = new Date(line.replace('notBefore=', ''));
+      } else if (line.startsWith('notAfter=')) {
+        notAfter = new Date(line.replace('notAfter=', ''));
+      } else if (line.startsWith('subject=')) {
+        subject = line.replace('subject=', '');
+      } else if (line.startsWith('issuer=')) {
+        issuer = line.replace('issuer=', '');
+      } else if (line.startsWith('SHA1 Fingerprint=')) {
+        fingerprint = line.replace('SHA1 Fingerprint=', '');
+      }
+    }
+
+    if (!notAfter) {
+      return null;
+    }
+
+    const now = new Date();
+    const daysUntilExpiry = Math.ceil((notAfter - now) / (1000 * 60 * 60 * 24));
+    const isExpired = now > notAfter;
+    const isExpiringSoon = daysUntilExpiry <= 30 && !isExpired;
+
+    // Extract issuer organization
+    const issuerMatch = issuer.match(/O=([^,]+)/);
+    const issuerOrg = issuerMatch ? issuerMatch[1] : 'Unknown';
+
+    return {
+      status: isExpired ? 'expired' : 'active',
+      hasSSL: true,
+      domain,
+      issuedDate: notBefore,
+      expiryDate: notAfter,
+      validFrom: notBefore?.toISOString(),
+      daysUntilExpiry,
+      isExpiringSoon,
+      isExpired,
+      commonName: domain,
+      subject,
+      issuer,
+      issuerOrg,
+      fingerprint,
+      certificatePath
+    };
   }
 
   /**

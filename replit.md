@@ -144,6 +144,9 @@ Changelog:
 - June 16, 2025: Implemented session-based authentication system without database
 - June 16, 2025: Added login/logout functionality with 24-hour session timeout
 - June 16, 2025: Protected all API routes with authentication middleware
+- June 16, 2025: Fixed SSL certificate expiry date parsing using real OpenSSL certificate data
+- June 16, 2025: Corrected days remaining calculation to show accurate countdown from actual certificate dates
+- June 16, 2025: Enhanced SSL status detection to read from both live connections and certificate files
 ```
 
 ## User Preferences

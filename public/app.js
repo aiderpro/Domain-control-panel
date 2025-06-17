@@ -1887,17 +1887,35 @@ class SSLManager {
     const expiryDate = new Date(ssl.expiryDate);
     const daysRemaining = this.getDaysUntilExpiry(ssl);
     
-    let className = 'text-muted';
-    if (ssl.isExpired) {
-      className = 'text-danger';
-    } else if (ssl.isExpiringSoon) {
-      className = 'text-warning';
+    // Handle invalid dates
+    if (isNaN(expiryDate.getTime())) {
+      return '<span class="text-danger">Invalid Date</span>';
     }
+    
+    let className = 'text-success';
+    let statusText = 'days remaining';
+    
+    if (daysRemaining < 0) {
+      className = 'text-danger';
+      statusText = 'days expired';
+    } else if (daysRemaining <= 7) {
+      className = 'text-danger';
+      statusText = 'days remaining (Critical)';
+    } else if (daysRemaining <= 30) {
+      className = 'text-warning';
+      statusText = 'days remaining (Warning)';
+    }
+
+    const formattedDate = expiryDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
 
     return `
       <div class="${className}">
-        <div>${expiryDate.toLocaleDateString()}</div>
-        <small>(${daysRemaining} days)</small>
+        <div class="fw-bold">${formattedDate}</div>
+        <small>(${Math.abs(daysRemaining)} ${statusText})</small>
       </div>
     `;
   }
@@ -1907,10 +1925,17 @@ class SSLManager {
     
     const now = new Date();
     const expiry = new Date(ssl.expiryDate);
+    
+    // Handle invalid dates
+    if (isNaN(expiry.getTime())) {
+      console.error('Invalid expiry date:', ssl.expiryDate);
+      return 0;
+    }
+    
     const diffTime = expiry.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    return Math.max(0, diffDays);
+    return diffDays; // Allow negative values to show expired certificates
   }
 
   showDNSConfigurationModal(data) {
