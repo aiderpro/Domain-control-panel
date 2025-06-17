@@ -6,32 +6,35 @@ const execAsync = promisify(exec);
 
 class SSLService {
   /**
-   * Check SSL certificate status for a domain
+   * Check SSL certificate status for a domain (always fresh data)
    */
   async checkSSLStatus(domain) {
+    console.log(`Checking fresh SSL status for ${domain}...`);
+    
+    // Always try live connection first for most up-to-date information
     try {
-      // First try to get real SSL certificate information from live connection
       const realSSLData = await this.getRealSSLStatus(domain);
       if (realSSLData && realSSLData.hasSSL) {
-        console.log(`Found live SSL certificate for ${domain}, expires: ${realSSLData.expiryDate}`);
+        console.log(`Found live SSL certificate for ${domain}, issued: ${realSSLData.issuedDate}, expires: ${realSSLData.expiryDate}, ${realSSLData.daysUntilExpiry} days remaining`);
         return realSSLData;
       }
     } catch (error) {
       console.log(`Failed to get live SSL for ${domain}:`, error.message);
     }
     
-    // Then check for certificate files on the server
+    // Fallback to certificate files (these are updated when renewed)
     try {
       const fileSSLData = await this.getSSLFromFiles(domain);
       if (fileSSLData && fileSSLData.hasSSL) {
-        console.log(`Found certificate file for ${domain}, expires: ${fileSSLData.expiryDate}`);
+        console.log(`Found certificate file for ${domain}, issued: ${fileSSLData.issuedDate}, expires: ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
         return fileSSLData;
       }
     } catch (error) {
       console.log(`No certificate files found for ${domain}:`, error.message);
     }
     
-    // No SSL certificate found - return authentic status
+    // No SSL certificate found
+    console.log(`No SSL certificate found for ${domain}`);
     return {
       status: 'no_ssl',
       hasSSL: false,

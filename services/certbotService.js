@@ -407,11 +407,23 @@ class CertbotService {
             });
           }
 
+          // Force refresh SSL data after successful renewal
+          setTimeout(async () => {
+            try {
+              const sslService = require('./sslService');
+              const freshSSLData = await sslService.checkSSLStatus(domain);
+              console.log(`Post-renewal SSL check for ${domain}:`, freshSSLData);
+            } catch (error) {
+              console.log(`Failed to refresh SSL data after renewal:`, error.message);
+            }
+          }, 2000);
+
           resolve({
             success: true,
             method: 'nginx',
             message: 'Certificate renewed successfully',
-            output
+            output,
+            renewalDate: new Date().toISOString()
           });
         } else {
           const error = `Certbot renewal failed with exit code ${code}: ${errorOutput}`;

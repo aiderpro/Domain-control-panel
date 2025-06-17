@@ -128,7 +128,7 @@ class SSLManager {
     
     // Use appropriate server based on environment
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://sitedev.eezix.com';
+    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://cpanel.webeezix.in';
     
     this.socket = io(socketUrl, socketOptions);
     

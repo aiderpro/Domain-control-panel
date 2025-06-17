@@ -138,9 +138,30 @@ router.post('/renew', async (req, res) => {
 
     const result = await certbotService.renewCertificate(domain, req.io);
 
+    // Force refresh SSL data after renewal to get updated certificate info
+    setTimeout(async () => {
+      try {
+        const sslService = require('../services/sslService');
+        const freshSSLData = await sslService.checkSSLStatus(domain);
+        console.log(`Post-renewal SSL refresh for ${domain}:`, {
+          expires: freshSSLData.expiryDate,
+          daysRemaining: freshSSLData.daysUntilExpiry,
+          issued: freshSSLData.issuedDate
+        });
+        
+        // Emit updated SSL data to frontend
+        req.io.emit('ssl_data_refreshed', {
+          domain,
+          ssl: freshSSLData
+        });
+      } catch (error) {
+        console.log(`Failed to refresh SSL data after renewal:`, error.message);
+      }
+    }, 5000); // Allow time for certificate files to be updated
+
     res.json({
       success: true,
-      message: `SSL certificate renewed for ${domain}`,
+      message: `SSL certificate renewed for ${domain}. Updated certificate data will be available shortly.`,
       domain,
       result,
       timestamp: new Date().toISOString()
@@ -238,6 +259,41 @@ router.post('/auto-renew', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to configure auto-renewal',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Manual refresh endpoint for SSL data (forces fresh certificate check)
+router.post('/refresh/:domain', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const sslService = require('../services/sslService');
+    
+    console.log(`Manual SSL data refresh requested for ${domain}`);
+    
+    // Force fresh SSL certificate check
+    const freshSSLData = await sslService.checkSSLStatus(domain);
+    
+    // Emit updated data to connected clients
+    req.io.emit('ssl_data_refreshed', {
+      domain,
+      ssl: freshSSLData
+    });
+    
+    res.json({
+      success: true,
+      message: `SSL data refreshed for ${domain}`,
+      domain,
+      ssl: freshSSLData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error refreshing SSL data for ${req.params.domain}:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to refresh SSL data',
       message: error.message,
       timestamp: new Date().toISOString()
     });
