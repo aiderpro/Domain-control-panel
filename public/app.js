@@ -632,6 +632,47 @@ class SSLManager {
     }
   }
 
+  async cleanupCertbot() {
+    try {
+      this.addNotification('info', 'Cleaning up certbot processes and locks...', true);
+      
+      const response = await this.api('POST', '/ssl/cleanup');
+      
+      if (response.success) {
+        this.addNotification('success', 'Certbot cleanup completed successfully');
+      } else {
+        this.addNotification('error', `Cleanup failed: ${response.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error cleaning up certbot:', error);
+      this.addNotification('error', 'Failed to cleanup certbot processes');
+    }
+  }
+
+  async checkSSLQueue() {
+    try {
+      const response = await this.api('GET', '/ssl/queue');
+      
+      if (response.success) {
+        const { certbotRunning, queueLength, processing } = response;
+        
+        let message = `Certbot Status: ${certbotRunning ? 'Running' : 'Available'}`;
+        if (queueLength > 0) {
+          message += ` | Queue: ${queueLength} domains processing`;
+        }
+        
+        this.addNotification('info', message);
+        
+        if (processing.length > 0) {
+          console.log('Currently processing domains:', processing);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking SSL queue:', error);
+      this.addNotification('error', 'Failed to check SSL queue status');
+    }
+  }
+
   async refreshSSLData(domain) {
     try {
       this.addNotification('info', `Refreshing SSL certificate data for ${domain}...`, false);

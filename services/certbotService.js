@@ -12,6 +12,9 @@ class CertbotService {
     this.nginxPath = '/etc/nginx';
     this.cloudnsService = new CloudNSService();
     this.methodTrackingFile = path.join(__dirname, '..', 'data', 'ssl-methods.json');
+    this.processingQueue = new Map(); // Track domains being processed
+    this.maxRetries = 5;
+    this.retryDelay = 30000; // 30 seconds between retries
   }
 
   /**
@@ -58,6 +61,9 @@ class CertbotService {
    */
   async installCertificate(domain, email, method = 'nginx', io = null) {
     try {
+      // Check if certbot is already running and wait if necessary
+      await this.waitForCertbotAvailability(domain, io);
+      
       if (method === 'dns') {
         return await this.installCertificateWithDNS(domain, email, io);
       } else {
@@ -232,6 +238,9 @@ class CertbotService {
 
       certbot.on('close', async (code) => {
         try {
+          // Always cleanup processing queue when done
+          this.cleanupProcessingQueue(domain);
+          
           if (code === 0) {
             // Verify certificate was created
             const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
@@ -279,14 +288,27 @@ class CertbotService {
               certPath
             });
           } else {
-            const error = `Certbot failed with exit code ${code}: ${errorOutput}`;
-            if (io) {
-              io.emit('ssl_install_error', { domain, error });
+            // Check if error is due to another certbot instance
+            if (errorOutput.includes('Another instance of Certbot is already running')) {
+              console.log(`Certbot conflict detected for ${domain}, will retry automatically`);
+              if (io) {
+                io.emit('ssl_install_error', { 
+                  domain, 
+                  error: 'Certbot is busy with another operation. This request will be retried automatically.' 
+                });
+              }
+              reject(new Error('CERTBOT_BUSY'));
+            } else {
+              const error = `Certbot failed with exit code ${code}: ${errorOutput}`;
+              if (io) {
+                io.emit('ssl_install_error', { domain, error });
+              }
+              reject(new Error(error));
             }
-            reject(new Error(error));
           }
         } catch (verifyError) {
           console.error('Certificate verification error:', verifyError);
+          this.cleanupProcessingQueue(domain);
           if (io) {
             io.emit('ssl_install_error', { 
               domain, 
@@ -336,6 +358,9 @@ class CertbotService {
    */
   async renewCertificate(domain, io = null) {
     try {
+      // Check if certbot is already running and wait if necessary
+      await this.waitForCertbotAvailability(domain, io);
+      
       const method = await this.getSSLMethod(domain);
       
       if (method === 'dns') {
@@ -345,6 +370,7 @@ class CertbotService {
       }
     } catch (error) {
       console.error('Error renewing certificate:', error);
+      this.cleanupProcessingQueue(domain);
       if (io) {
         io.emit('ssl_renew_error', { 
           domain, 
@@ -523,6 +549,164 @@ class CertbotService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Wait for certbot to be available (handle concurrent requests)
+   */
+  async waitForCertbotAvailability(domain, io = null, retryCount = 0) {
+    try {
+      // Check if this domain is already being processed
+      if (this.processingQueue.has(domain)) {
+        const startTime = this.processingQueue.get(domain);
+        const elapsed = Date.now() - startTime;
+        
+        if (elapsed > 300000) { // 5 minutes timeout
+          console.log(`Removing stale processing entry for ${domain}`);
+          this.processingQueue.delete(domain);
+        } else {
+          if (io) {
+            io.emit('ssl_install_progress', {
+              domain,
+              stage: 'waiting',
+              message: `Domain ${domain} is already being processed. Waiting...`
+            });
+          }
+          await this.sleep(5000); // Wait 5 seconds
+          return await this.waitForCertbotAvailability(domain, io, retryCount);
+        }
+      }
+
+      // Check if certbot is currently running
+      const isRunning = await this.isCertbotRunning();
+      if (isRunning) {
+        if (retryCount >= this.maxRetries) {
+          throw new Error(`Certbot is still running after ${this.maxRetries} retries. Please try again later.`);
+        }
+
+        if (io) {
+          io.emit('ssl_install_progress', {
+            domain,
+            stage: 'waiting',
+            message: `Certbot is busy. Waiting ${this.retryDelay/1000} seconds before retry ${retryCount + 1}/${this.maxRetries}...`
+          });
+        }
+
+        console.log(`Certbot is running. Retry ${retryCount + 1}/${this.maxRetries} for ${domain}`);
+        await this.sleep(this.retryDelay);
+        return await this.waitForCertbotAvailability(domain, io, retryCount + 1);
+      }
+
+      // Mark domain as being processed
+      this.processingQueue.set(domain, Date.now());
+      
+      if (io) {
+        io.emit('ssl_install_progress', {
+          domain,
+          stage: 'ready',
+          message: 'Certbot is available. Starting SSL installation...'
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error waiting for certbot availability:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if certbot is currently running
+   */
+  async isCertbotRunning() {
+    try {
+      // Check for certbot processes
+      const { stdout } = await execAsync('pgrep -f certbot || echo "no_process"');
+      if (stdout.trim() !== 'no_process') {
+        return true;
+      }
+
+      // Check for certbot lock files
+      try {
+        await fs.access('/var/lib/letsencrypt/.certbot.lock');
+        return true;
+      } catch (lockError) {
+        // Lock file doesn't exist, certbot is not running
+      }
+
+      // Check for temporary directories that indicate certbot is running
+      try {
+        const { stdout: tmpDirs } = await execAsync('ls /tmp/ | grep certbot-log || echo "no_temp"');
+        if (tmpDirs.trim() !== 'no_temp') {
+          return true;
+        }
+      } catch (tmpError) {
+        // No temp directories found
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error checking if certbot is running:', error);
+      return false; // Assume not running if we can't determine
+    }
+  }
+
+  /**
+   * Clean up processing queue entry for domain
+   */
+  cleanupProcessingQueue(domain) {
+    if (this.processingQueue.has(domain)) {
+      this.processingQueue.delete(domain);
+      console.log(`Cleaned up processing queue for ${domain}`);
+    }
+  }
+
+  /**
+   * Force cleanup of certbot processes and locks
+   */
+  async forceCertbotCleanup() {
+    try {
+      console.log('Performing certbot cleanup...');
+      
+      // Kill any hanging certbot processes
+      try {
+        await execAsync('pkill -f certbot');
+        console.log('Killed certbot processes');
+      } catch (error) {
+        // No processes to kill
+      }
+
+      // Remove lock files
+      try {
+        await fs.unlink('/var/lib/letsencrypt/.certbot.lock');
+        console.log('Removed certbot lock file');
+      } catch (error) {
+        // Lock file doesn't exist
+      }
+
+      // Clean up temporary directories
+      try {
+        const { stdout } = await execAsync('ls /tmp/ | grep certbot-log || echo "no_temp"');
+        if (stdout.trim() !== 'no_temp') {
+          await execAsync('rm -rf /tmp/certbot-log-*');
+          console.log('Cleaned up certbot temp directories');
+        }
+      } catch (error) {
+        // No temp directories to clean
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error during certbot cleanup:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Sleep utility function
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

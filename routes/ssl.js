@@ -3,6 +3,56 @@ const router = express.Router();
 const certbotService = require('../services/certbotService');
 const sslService = require('../services/sslService');
 
+// Force cleanup certbot processes and locks
+router.post('/cleanup', async (req, res) => {
+  try {
+    const result = await certbotService.forceCertbotCleanup();
+    
+    res.json({
+      success: result,
+      message: result ? 'Certbot cleanup completed successfully' : 'Certbot cleanup failed',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error during certbot cleanup:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Cleanup failed',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Get processing queue status
+router.get('/queue', async (req, res) => {
+  try {
+    const queueStatus = Array.from(certbotService.processingQueue.entries()).map(([domain, startTime]) => ({
+      domain,
+      startTime: new Date(startTime).toISOString(),
+      elapsed: Date.now() - startTime
+    }));
+
+    const isRunning = await certbotService.isCertbotRunning();
+    
+    res.json({
+      success: true,
+      certbotRunning: isRunning,
+      queueLength: queueStatus.length,
+      processing: queueStatus,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting queue status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get queue status',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Install new SSL certificate
 router.post('/install', async (req, res) => {
   try {
