@@ -1,12 +1,3 @@
-#!/bin/bash
-
-# Direct deployment to production server
-# This script copies the fixed SSL service files
-
-echo "Deploying SSL expiry fix directly..."
-
-# Create Git deployment files for easy transfer
-cat > git-ssl-fix.md << 'EOF'
 # Git Deployment Commands for SSL Fix
 
 ## On your production server (cpanel.webeezix.in):
@@ -243,11 +234,3 @@ a3cabscochin.com will show:
 - Days remaining: 36 days
 - Instead of September 15th demo data
 
-EOF
-
-echo "Git deployment guide created: git-ssl-fix.md"
-echo ""
-echo "MANUAL DEPLOYMENT STEPS:"
-echo "1. Copy the content from git-ssl-fix.md"
-echo "2. Run the commands on your production server"
-echo "3. The SSL service will show real certificate dates"
