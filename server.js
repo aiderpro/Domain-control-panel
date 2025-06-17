@@ -57,26 +57,38 @@ if (NODE_ENV === 'production') {
 
 app.use(session(sessionConfig));
 
-// Middleware
-app.use(cors({
+// CORS configuration
+const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    const allowedOrigins = NODE_ENV === 'production' ? 
-      ["https://cpanel.webeezix.in", "http://cpanel.webeezix.in", "https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
-      ["http://localhost:8000", "http://127.0.0.1:8000"];
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
+
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:8000',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:8000',
+      'https://sitedev.eezix.com',
+      'https://cpanel.webeezix.in'
+    ];
+
+    // Check if origin matches or if it's a replit domain
+    const isReplit = origin.includes('replit.dev') || origin.includes('repl.co');
+
+    if (allowedOrigins.indexOf(origin) !== -1 || isReplit) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow for now during testing
+      console.log(`CORS allowing origin: ${origin}`);
+      callback(null, true); // Allow all origins for now to debug
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
+};
+
+// Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Authentication middleware
@@ -100,7 +112,7 @@ app.use((req, res, next) => {
 // Authentication routes (unprotected)
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
-  
+
   console.log('Login attempt:', {
     username: username,
     passwordLength: password ? password.length : 0,
@@ -109,13 +121,13 @@ app.post('/api/auth/login', (req, res) => {
     origin: req.get('origin'),
     userAgent: req.get('user-agent')
   });
-  
+
   if (username === AUTH_USER && password === AUTH_PASSWORD) {
     req.session.authenticated = true;
     req.session.user = username;
-    
+
     console.log('Login successful for:', username);
-    
+
     res.json({ 
       success: true, 
       message: 'Login successful',
@@ -186,11 +198,17 @@ app.get('/api/debug/session', (req, res) => {
   });
 });
 
-// Protected API routes
+// Routes - Add middleware to pass io instance to routes
+const addIoToReq = (req, res, next) => {
+  req.io = io;
+  next();
+};
+
 app.use('/api/domains', requireAuth, domainsRoutes);
 app.use('/api/ssl', requireAuth, sslRoutes);
 app.use('/api/nginx', requireAuth, nginxConfigRoutes);
 app.use('/api/autorenewal', requireAuth, autorenewalRoutes);
+app.use('/api/cloudns', requireAuth, cloudnsConfigRoutes);
 app.use('/api/cloudns', requireAuth, cloudnsConfigRoutes);
 
 // Health check endpoint
@@ -206,7 +224,7 @@ app.get('*', (req, res) => {
 // Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });

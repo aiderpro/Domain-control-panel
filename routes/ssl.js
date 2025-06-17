@@ -220,8 +220,11 @@ router.post('/renew-all', async (req, res) => {
 // Check SSL certificate status
 router.get('/status/:domain', async (req, res) => {
   try {
-    const domain = req.params.domain;
+    const domain = decodeURIComponent(req.params.domain);
+    console.log(`Checking SSL status for domain: ${domain}`);
+    
     const sslInfo = await sslService.checkSSLStatus(domain);
+    console.log(`SSL status result for ${domain}:`, sslInfo);
 
     res.json({
       success: true,
@@ -235,6 +238,7 @@ router.get('/status/:domain', async (req, res) => {
       success: false,
       error: 'Failed to check SSL status',
       message: error.message,
+      domain: req.params.domain,
       timestamp: new Date().toISOString()
     });
   }

@@ -22,6 +22,19 @@ class SSLService {
       console.log(`No certificate files found for ${domain}:`, error.message);
     }
 
+    // Try with www prefix if not found
+    if (!domain.startsWith('www.')) {
+      try {
+        const wwwFileSSLData = await this.getSSLFromFiles(`www.${domain}`);
+        if (wwwFileSSLData && wwwFileSSLData.hasSSL) {
+          console.log(`Found certificate file for www.${domain}, issued: ${wwwFileSSLData.issuedDate}, expires: ${wwwFileSSLData.expiryDate}, ${wwwFileSSLData.daysUntilExpiry} days remaining`);
+          return { ...wwwFileSSLData, domain }; // Return with original domain
+        }
+      } catch (error) {
+        console.log(`No www certificate files found for ${domain}:`, error.message);
+      }
+    }
+
     // Fallback to live connection
     try {
       const realSSLData = await this.getRealSSLStatus(domain);
@@ -32,8 +45,19 @@ class SSLService {
     } catch (error) {
       console.log(`Failed to get live SSL for ${domain}:`, error.message);
     }
-    
 
+    // Try live connection with www prefix
+    if (!domain.startsWith('www.')) {
+      try {
+        const wwwRealSSLData = await this.getRealSSLStatus(`www.${domain}`);
+        if (wwwRealSSLData && wwwRealSSLData.hasSSL) {
+          console.log(`Found live SSL certificate for www.${domain}, issued: ${wwwRealSSLData.issuedDate}, expires: ${wwwRealSSLData.expiryDate}, ${wwwRealSSLData.daysUntilExpiry} days remaining`);
+          return { ...wwwRealSSLData, domain }; // Return with original domain
+        }
+      } catch (error) {
+        console.log(`Failed to get live SSL for www.${domain}:`, error.message);
+      }
+    }
     
     // No SSL certificate found
     console.log(`No SSL certificate found for ${domain}`);
@@ -82,6 +106,16 @@ class SSLService {
       `/etc/ssl/certs/${domain}.pem`
     ];
 
+    // Also check for www variant if domain doesn't start with www
+    if (!domain.startsWith('www.')) {
+      possiblePaths.push(
+        `/etc/letsencrypt/live/www.${domain}/fullchain.pem`,
+        `/etc/ssl/acme/www.${domain}/fullchain.pem`,
+        `/root/.acme.sh/www.${domain}/fullchain.cer`,
+        `/etc/ssl/certs/www.${domain}.pem`
+      );
+    }
+
     for (const certPath of possiblePaths) {
       try {
         await fs.access(certPath);
@@ -89,7 +123,11 @@ class SSLService {
         const { stdout } = await execAsync(command);
         
         if (stdout.trim()) {
-          return this.parseSSLOutput(stdout, domain, certPath);
+          const result = this.parseSSLOutput(stdout, domain, certPath);
+          if (result && result.hasSSL) {
+            console.log(`SSL certificate found at: ${certPath}`);
+            return result;
+          }
         }
       } catch (error) {
         // Continue to next path
