@@ -78,12 +78,7 @@ router.get('/', async (req, res) => {
       }
     }));
 
-    res.json({
-      success: true,
-      domains: domainsWithSSL,
-      total: domainsWithSSL.length,
-      timestamp: new Date().toISOString()
-    });
+    res.json(domainsWithSSL);
   } catch (error) {
     console.error('Error fetching domains:', error);
     res.status(500).json({

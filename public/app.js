@@ -267,21 +267,40 @@ class SSLManager {
       
       const response = await this.api('GET', '/domains');
       
-      if (response && Array.isArray(response)) {
-        this.domains = response;
-        this.applyFiltersAndSort();
-        this.renderDomainList();
-        this.updateStats();
-        
-        // If no domain is selected but we have domains, select the first one
-        if (!this.selectedDomain && this.domains.length > 0) {
-          this.selectDomain(this.domains[0].domain);
-        }
+      console.log('Domains API response:', response);
+      
+      // Handle different response formats
+      let domainsArray;
+      if (Array.isArray(response)) {
+        domainsArray = response;
+      } else if (response && Array.isArray(response.domains)) {
+        domainsArray = response.domains;
+      } else if (response && response.success && Array.isArray(response.domains)) {
+        domainsArray = response.domains;
       } else {
-        throw new Error('Invalid response format');
+        console.error('Unexpected response format:', response);
+        throw new Error('Server returned unexpected response format');
+      }
+      
+      this.domains = domainsArray;
+      this.applyFiltersAndSort();
+      this.renderDomainList();
+      this.updateStats();
+      
+      // If no domain is selected but we have domains, select the first one
+      if (!this.selectedDomain && this.domains.length > 0) {
+        this.selectDomain(this.domains[0].domain);
       }
     } catch (error) {
       console.error('Error loading domains:', error);
+      
+      // Handle authentication errors
+      if (error.response && error.response.status === 401) {
+        console.log('Authentication required, redirecting to login...');
+        window.location.href = '/login.html';
+        return;
+      }
+      
       this.safeSetContent('domain-list-container', `
         <div class="text-center py-5">
           <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
