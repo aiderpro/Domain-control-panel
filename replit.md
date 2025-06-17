@@ -158,6 +158,7 @@ Changelog:
 - June 17, 2025: Fixed production login issues - Updated session configuration for HTTPS, added file-based session storage, enhanced CORS handling
 - June 17, 2025: Migrated application from sitedev.eezix.com to cpanel.webeezix.in - Updated frontend API configuration and server CORS settings
 - June 17, 2025: Created domain migration tooling and comprehensive troubleshooting documentation for production deployments
+- June 17, 2025: FIXED SSL EXPIRY DATE ISSUES - Removed all demo data showing September 15th dates, updated SSL service to fetch authentic certificate expiry information from live connections and certificate files, enhanced certificate parsing with proper date validation and accurate days remaining calculations
 ```
 
 ## User Preferences

@@ -31,34 +31,33 @@ router.get('/', async (req, res) => {
 
         let sslInfo;
         if (hasSSLConfig) {
-          // Calculate actual days remaining until expiry (90 days from today)
-          const today = new Date();
-          const expiryDate = new Date(today);
-          expiryDate.setDate(today.getDate() + 90); // 90 days from today
-
-          const diffTime = expiryDate.getTime() - today.getTime();
-          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          sslInfo = {
-            status: 'active',
-            hasSSL: true,
-            domain: domain.domain,
-            message: 'SSL certificate installed',
-            isExpired: daysRemaining <= 0,
-            isExpiringSoon: daysRemaining <= 30 && daysRemaining > 0,
-            certificatePath: domain.sslCertificate,
-            expiryDate: expiryDate.toISOString(),
-            daysRemaining: daysRemaining,
-            issuer: 'Let\'s Encrypt',
-            validFrom: today.toISOString()
-          };
+          // Get real SSL certificate information
+          sslInfo = await sslService.checkSSLStatus(domain.domain);
+          
+          // If no real SSL found but nginx config indicates SSL, mark as configured but no certificate
+          if (!sslInfo || !sslInfo.hasSSL) {
+            sslInfo = {
+              status: 'configured_no_cert',
+              hasSSL: false,
+              domain: domain.domain,
+              message: 'SSL configured in nginx but no valid certificate found',
+              isExpired: false,
+              isExpiringSoon: false,
+              certificatePath: domain.sslCertificate,
+              daysUntilExpiry: 0
+            };
+          }
         } else {
-          sslInfo = {
-            status: 'no_ssl',
-            hasSSL: false,
-            domain: domain.domain,
-            message: 'No SSL certificate found'
-          };
+          // No SSL configuration found
+          sslInfo = await sslService.checkSSLStatus(domain.domain);
+          if (!sslInfo || !sslInfo.hasSSL) {
+            sslInfo = {
+              status: 'no_ssl',
+              hasSSL: false,
+              domain: domain.domain,
+              message: 'No SSL certificate found'
+            };
+          }
         }
 
         return {
@@ -66,6 +65,7 @@ router.get('/', async (req, res) => {
           ssl: sslInfo
         };
       } catch (error) {
+        console.error(`Error checking SSL for ${domain.domain}:`, error);
         return {
           ...domain,
           ssl: {
