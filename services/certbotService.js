@@ -172,21 +172,33 @@ class CertbotService {
    * Perform real SSL installation with certbot
    */
   performRealSSLInstallation(domain, email, io, resolve, reject, initialArgs) { // Accept args here
+    try {
+      const args = initialArgs;
 
-    const args = initialArgs;
+      // Emit status updates
+      if (io) {
+        io.emit('ssl_install_progress', { 
+          domain, 
+          stage: 'starting',
+          message: 'Starting certificate installation...' 
+        });
+      }
 
-    // Emit status updates
-    if (io) {
-      io.emit('ssl_install_progress', { 
-        domain, 
-        stage: 'starting',
-        message: 'Starting certificate installation...' 
+      const certbot = spawn('certbot', args);
+      let output = '';
+      let errorOutput = '';
+
+      // Add error handler for spawn process
+      certbot.on('error', (error) => {
+        console.error('Certbot spawn error:', error);
+        if (io) {
+          io.emit('ssl_install_error', { 
+            domain, 
+            error: `Failed to start certbot: ${error.message}` 
+          });
+        }
+        reject(new Error(`Failed to start certbot: ${error.message}`));
       });
-    }
-
-    const certbot = spawn('certbot', args);
-    let output = '';
-    let errorOutput = '';
 
     certbot.stdout.on('data', (data) => {
       const message = data.toString();
@@ -282,12 +294,16 @@ class CertbotService {
       }
     });
 
-    certbot.on('error', (error) => {
+    } catch (error) {
+      console.error('Error in performRealSSLInstallation:', error);
       if (io) {
-        io.emit('ssl_install_error', { domain, error: error.message });
+        io.emit('ssl_install_error', { 
+          domain, 
+          error: `SSL installation error: ${error.message}` 
+        });
       }
-      reject(new Error(`Failed to start certbot: ${error.message}`));
-    });
+      reject(new Error(`SSL installation failed: ${error.message}`));
+    }
   }
 
   /**
