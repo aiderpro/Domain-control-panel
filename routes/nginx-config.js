@@ -440,7 +440,7 @@ router.post('/add-domain', async (req, res) => {
 
   } catch (error) {
     console.error('Error adding domain:', error);
-    io.emit('domain_add_error', { domain, error: error.message });
+    io.emit('domain_add_error', { domain: normalizedDomain || domain, error: error.message });
     
     res.status(500).json({
       success: false,

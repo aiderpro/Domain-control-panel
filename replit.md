@@ -150,6 +150,8 @@ Changelog:
 - June 17, 2025: Fixed SSL expiry days calculation to match Certbot logic (excludes current day from count)
 - June 17, 2025: Updated nginx configuration template with proxy settings for localhost:3000 and PHP-FPM support
 - June 17, 2025: Implemented automatic www subdomain inclusion for SSL certificates on main domains (skips existing subdomains)
+- June 17, 2025: Enhanced domain validation to automatically strip www prefixes and create configurations for both domain and www subdomain
+- June 17, 2025: Updated nginx configuration template to match exact user specifications with proper formatting and security headers
 ```
 
 ## User Preferences
