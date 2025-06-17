@@ -124,21 +124,21 @@ class AcmeService {
         
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'certificate_complete',
             message: 'SSL certificate issued successfully!'
           });
         }
 
         // Create symlinks to standard Let's Encrypt paths for compatibility
-        await execAsync(`sudo mkdir -p /etc/letsencrypt/live/${domain}`);
-        await execAsync(`sudo ln -sf ${this.certDir}/${domain}/fullchain.pem /etc/letsencrypt/live/${domain}/fullchain.pem`);
-        await execAsync(`sudo ln -sf ${this.certDir}/${domain}/key.pem /etc/letsencrypt/live/${domain}/privkey.pem`);
+        await execAsync(`sudo mkdir -p /etc/letsencrypt/live/${primaryDomain}`);
+        await execAsync(`sudo ln -sf ${this.certDir}/${primaryDomain}/fullchain.pem /etc/letsencrypt/live/${primaryDomain}/fullchain.pem`);
+        await execAsync(`sudo ln -sf ${this.certDir}/${primaryDomain}/key.pem /etc/letsencrypt/live/${primaryDomain}/privkey.pem`);
 
         resolve({
           success: true,
-          certificatePath: `/etc/letsencrypt/live/${domain}/fullchain.pem`,
-          keyPath: `/etc/letsencrypt/live/${domain}/privkey.pem`,
+          certificatePath: `/etc/letsencrypt/live/${primaryDomain}/fullchain.pem`,
+          keyPath: `/etc/letsencrypt/live/${primaryDomain}/privkey.pem`,
           output: stdout
         });
 
@@ -147,7 +147,7 @@ class AcmeService {
         
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'certificate_error',
             message: `Certificate issue failed: ${error.message}`
           });
