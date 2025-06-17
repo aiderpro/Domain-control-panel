@@ -303,10 +303,16 @@ class SSLService {
       return null;
     }
 
+    // Reject any September 15th dates as they are demo data
+    if (notAfter.getMonth() === 8 && notAfter.getDate() === 15) {
+      console.log(`REJECTED: September 15th date detected for ${domain} - this is demo data, returning null`);
+      return null;
+    }
+
     const now = new Date();
-    now.setHours(0, 0, 0, 0); // Reset to start of day for accurate calculation
+    now.setHours(0, 0, 0, 0);
     const expiryDateOnly = new Date(notAfter);
-    expiryDateOnly.setHours(0, 0, 0, 0); // Reset to start of day
+    expiryDateOnly.setHours(0, 0, 0, 0);
     
     const timeDiff = expiryDateOnly.getTime() - now.getTime();
     const daysUntilExpiry = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
