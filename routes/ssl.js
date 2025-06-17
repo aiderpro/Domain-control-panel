@@ -6,7 +6,7 @@ const sslService = require('../services/sslService');
 // Install new SSL certificate
 router.post('/install', async (req, res) => {
   try {
-    const { domain, email, method = 'nginx' } = req.body;
+    let { domain, email, method = 'nginx' } = req.body;
 
     if (!domain || !email) {
       return res.status(400).json({
@@ -15,6 +15,9 @@ router.post('/install', async (req, res) => {
         timestamp: new Date().toISOString()
       });
     }
+
+    // Remove www prefix if present to normalize domain
+    const normalizedDomain = domain.replace(/^www\./, '');
 
     // Validate method
     if (!['nginx', 'dns'].includes(method)) {
@@ -26,14 +29,14 @@ router.post('/install', async (req, res) => {
     }
 
     // Emit installation start status
-    req.io.emit('ssl_install_start', { domain, method });
+    req.io.emit('ssl_install_start', { domain: normalizedDomain, method });
 
-    const result = await certbotService.installCertificate(domain, email, method, req.io);
+    const result = await certbotService.installCertificate(normalizedDomain, email, method, req.io);
 
     res.json({
       success: true,
-      message: `SSL certificate installation started for ${domain} using ${method} method`,
-      domain,
+      message: `SSL certificate installation started for ${normalizedDomain} (including www.${normalizedDomain}) using ${method} method`,
+      domain: normalizedDomain,
       method,
       result,
       timestamp: new Date().toISOString()

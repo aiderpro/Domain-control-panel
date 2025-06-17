@@ -59,23 +59,18 @@ class CertbotService {
   shouldIncludeWWW(domain) {
     // Count dots in domain to determine if it's a subdomain
     const dotCount = (domain.match(/\./g) || []).length;
-    
+
     // If domain has only one dot (e.g., example.com), include www
     // If domain has multiple dots (e.g., sub.example.com), it's already a subdomain
     return dotCount === 1 && !domain.startsWith('www.');
   }
 
   /**
-   * Get domains array for SSL certificate installation
+   * Get domains array (includes www if applicable)
    */
   getDomainsForSSL(domain) {
-    const domains = [domain];
-    
-    if (this.shouldIncludeWWW(domain)) {
-      domains.push(`www.${domain}`);
-    }
-    
-    return domains;
+    // Always include both domain and www subdomain
+    return [domain, `www.${domain}`];
   }
 
   /**
@@ -90,27 +85,33 @@ class CertbotService {
   }
 
   /**
-   * Install SSL certificate using certbot with nginx verification
+   * Install SSL certificate for specific domain using nginx method
    */
   async installCertificateWithNginx(domain, email, io = null) {
     return new Promise((resolve, reject) => {
-      // Validate inputs
       if (!domain || !email) {
         return reject(new Error('Domain and email are required'));
       }
 
-      if (!this.isValidDomain(domain) || !this.isValidEmail(email)) {
-        return reject(new Error('Invalid domain or email format'));
-      }
+      // Include both domain and www subdomain
+      const args = [
+        'certonly',
+        '--nginx',
+        '--non-interactive',
+        '--agree-tos',
+        '--email', email,
+        '-d', domain,
+        '-d', `www.${domain}`
+      ];
 
       // Check if certbot is available, if not simulate the process
       this.checkCertbotAvailability().then(availability => {
         if (!availability.available) {
           return this.simulateSSLInstallation(domain, email, io, resolve, reject);
         }
-        
+
         // Continue with real certbot installation
-        this.performRealSSLInstallation(domain, email, io, resolve, reject);
+        this.performRealSSLInstallation(domain, email, io, resolve, reject, args); // Pass args here
       });
     });
   }
@@ -120,7 +121,7 @@ class CertbotService {
    */
   simulateSSLInstallation(domain, email, io, resolve, reject) {
     console.log(`Simulating SSL installation for ${domain} with email ${email}`);
-    
+
     if (io) {
       io.emit('ssl_install_progress', { 
         domain, 
@@ -170,23 +171,9 @@ class CertbotService {
   /**
    * Perform real SSL installation with certbot
    */
-  performRealSSLInstallation(domain, email, io, resolve, reject) {
-    // Get domains array (includes www if applicable)
-    const domains = this.getDomainsForSSL(domain);
-    
-    const args = [
-      '--nginx',
-      '--non-interactive',
-      '--agree-tos',
-      '--email', email,
-      '--expand',
-      '--redirect'
-    ];
+  performRealSSLInstallation(domain, email, io, resolve, reject, initialArgs) { // Accept args here
 
-    // Add domain arguments
-    domains.forEach(d => {
-      args.push('-d', d);
-    });
+    const args = initialArgs;
 
     // Emit status updates
     if (io) {
@@ -205,7 +192,7 @@ class CertbotService {
       const message = data.toString();
       output += message;
       console.log('Certbot stdout:', message);
-      
+
       if (io) {
         io.emit('ssl_install_progress', { 
           domain, 
@@ -219,7 +206,7 @@ class CertbotService {
       const message = data.toString();
       errorOutput += message;
       console.error('Certbot stderr:', message);
-      
+
       if (io) {
         io.emit('ssl_install_progress', { 
           domain, 
@@ -235,14 +222,14 @@ class CertbotService {
           // Verify certificate was created
           const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
           await fs.access(certPath);
-          
+
           // Verify nginx configuration was updated
           await this.verifyNginxSSLConfig(domain, io);
-          
+
           // Test nginx configuration
           const { spawn } = require('child_process');
           const nginxTest = spawn('nginx', ['-t']);
-          
+
           nginxTest.on('close', (testCode) => {
             if (testCode === 0) {
               // Reload nginx to apply changes
@@ -269,7 +256,7 @@ class CertbotService {
 
           // Save the installation method for future renewals
           await this.saveSSLMethod(domain, 'nginx');
-          
+
           resolve({
             success: true,
             method: 'nginx',
@@ -304,27 +291,23 @@ class CertbotService {
   }
 
   /**
-   * Install SSL certificate using DNS challenge with CloudNS
+   * Install SSL certificate for specific domain using DNS method
    */
   async installCertificateWithDNS(domain, email, io = null) {
     try {
-      if (io) {
-        io.emit('ssl_install_progress', {
-          domain,
-          stage: 'starting',
-          message: 'Starting SSL installation with DNS challenge...'
-        });
+      if (!this.cloudnsService) {
+        throw new Error('CloudNS service not available for DNS challenges');
       }
 
-      // Get domains array (includes www if applicable)
-      const domains = this.getDomainsForSSL(domain);
-      
+      // Always include both domain and www subdomain for DNS method
+      const domains = [domain, `www.${domain}`];
+
       // Use CloudNS service for DNS challenge
       const result = await this.cloudnsService.installSSLWithDNS(domains, email, io);
-      
+
       // Save the installation method for future renewals
       await this.saveSSLMethod(domain, 'dns');
-      
+
       return {
         ...result,
         method: 'dns'
@@ -342,7 +325,7 @@ class CertbotService {
     try {
       // Get the method used for initial installation
       const method = await this.getSSLMethod(domain);
-      
+
       if (method === 'dns') {
         return this.renewCertificateWithDNS(domain, io);
       } else {
@@ -386,7 +369,7 @@ class CertbotService {
         const message = data.toString();
         output += message;
         console.log('Certbot renewal stdout:', message);
-        
+
         if (io) {
           io.emit('ssl_renew_progress', { 
             domain, 
@@ -400,7 +383,7 @@ class CertbotService {
         const message = data.toString();
         errorOutput += message;
         console.error('Certbot renewal stderr:', message);
-        
+
         if (io) {
           io.emit('ssl_renew_progress', { 
             domain, 
@@ -459,7 +442,7 @@ class CertbotService {
 
       // Use CloudNS service for DNS renewal
       const result = await this.cloudnsService.installSSLWithDNS(domain, '', io);
-      
+
       if (io) {
         io.emit('ssl_renew_complete', {
           domain,
@@ -477,7 +460,7 @@ class CertbotService {
       };
     } catch (error) {
       console.error('DNS certificate renewal error:', error);
-      
+
       if (io) {
         io.emit('ssl_renew_error', {
           domain,
@@ -485,7 +468,7 @@ class CertbotService {
           error: error.message
         });
       }
-      
+
       throw error;
     }
   }
@@ -516,7 +499,7 @@ class CertbotService {
         const message = data.toString();
         output += message;
         console.log('Certbot renew-all stdout:', message);
-        
+
         if (io) {
           io.emit('ssl_renew_all_progress', { 
             stage: 'progress',
@@ -529,7 +512,7 @@ class CertbotService {
         const message = data.toString();
         errorOutput += message;
         console.error('Certbot renew-all stderr:', message);
-        
+
         if (io) {
           io.emit('ssl_renew_all_progress', { 
             stage: 'warning',
@@ -579,11 +562,11 @@ class CertbotService {
         // Add cron job for auto-renewal
         const cronJob = '0 12 * * * /usr/bin/certbot renew --quiet --nginx';
         const { stdout } = await execAsync('crontab -l 2>/dev/null || echo ""');
-        
+
         if (!stdout.includes('certbot renew')) {
           await execAsync(`(crontab -l 2>/dev/null; echo "${cronJob}") | crontab -`);
         }
-        
+
         return {
           success: true,
           message: 'Auto-renewal enabled via cron job',
@@ -592,7 +575,7 @@ class CertbotService {
       } else {
         // Remove cron job
         await execAsync('crontab -l | grep -v "certbot renew" | crontab -');
-        
+
         return {
           success: true,
           message: 'Auto-renewal disabled'
@@ -625,7 +608,7 @@ class CertbotService {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      
+
       if (trimmed.startsWith('Certificate Name:')) {
         if (currentCert) {
           certificates.push(currentCert);
@@ -679,19 +662,19 @@ class CertbotService {
     try {
       const nginxService = require('./nginxService');
       const nginx = new nginxService();
-      
+
       // Get domain configuration
       const config = await nginx.getDomainConfig(domain);
-      
+
       if (!config) {
         throw new Error(`No nginx configuration found for ${domain}`);
       }
-      
+
       // Check if SSL directives were added
       const hasSSLCertificate = config.sslCertificate && config.sslCertificate.includes(domain);
       const hasSSLKey = config.sslCertificateKey && config.sslCertificateKey.includes(domain);
       const hasPort443 = config.listen && config.listen.includes('443');
-      
+
       if (io) {
         if (hasSSLCertificate && hasSSLKey && hasPort443) {
           io.emit('ssl_install_progress', { 
@@ -707,7 +690,7 @@ class CertbotService {
           });
         }
       }
-      
+
       return {
         configured: hasSSLCertificate && hasSSLKey && hasPort443,
         details: {
