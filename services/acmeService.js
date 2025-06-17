@@ -70,12 +70,15 @@ class AcmeService {
   /**
    * Issue SSL certificate using acme.sh with CloudNS DNS API
    */
-  async issueCertificate(domain, email, io = null) {
+  async issueCertificate(domains, email, io = null) {
+    // Handle both single domain and array of domains
+    const domainArray = Array.isArray(domains) ? domains : [domains];
+    const primaryDomain = domainArray[0];
     return new Promise(async (resolve, reject) => {
       try {
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'acme_setup',
             message: 'Setting up acme.sh with CloudNS DNS API...'
           });
@@ -95,24 +98,27 @@ class AcmeService {
 
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'certificate_issue',
-            message: 'Issuing SSL certificate with DNS challenge...'
+            message: `Issuing SSL certificate with DNS challenge for ${domainArray.join(', ')}...`
           });
         }
 
         // Create certificate directory
-        await execAsync(`sudo mkdir -p ${this.certDir}/${domain}`);
+        await execAsync(`sudo mkdir -p ${this.certDir}/${primaryDomain}`);
 
         // Use a proper email format for Let's Encrypt registration
-        const registrationEmail = email && email.includes('.') ? email : `admin@${domain}`;
+        const registrationEmail = email && email.includes('.') ? email : `admin@${primaryDomain}`;
         
         // Get CloudNS credentials from environment
         const authId = process.env.CX_User;
         const authPassword = process.env.CX_Key;
         
+        // Build domain arguments for acme.sh
+        const domainArgs = domainArray.map(d => `-d ${d}`).join(' ');
+        
         // Issue certificate using CloudNS DNS API with environment variables and full path
-        const acmeCommand = `CX_User="${authId}" CX_Key="${authPassword}" ${this.acmePath} --issue --dns dns_cx -d ${domain} --accountemail ${registrationEmail} --cert-file ${this.certDir}/${domain}/cert.pem --key-file ${this.certDir}/${domain}/key.pem --fullchain-file ${this.certDir}/${domain}/fullchain.pem --reloadcmd "systemctl reload nginx" --debug`;
+        const acmeCommand = `CX_User="${authId}" CX_Key="${authPassword}" ${this.acmePath} --issue --dns dns_cx ${domainArgs} --accountemail ${registrationEmail} --cert-file ${this.certDir}/${primaryDomain}/cert.pem --key-file ${this.certDir}/${primaryDomain}/key.pem --fullchain-file ${this.certDir}/${primaryDomain}/fullchain.pem --reloadcmd "systemctl reload nginx" --debug`;
 
         const { stdout, stderr } = await execAsync(acmeCommand);
         

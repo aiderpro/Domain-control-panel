@@ -159,7 +159,7 @@ class CloudNSService {
           
           if (io) {
             io.emit('ssl_install_error', {
-              domain,
+              domain: primaryDomain,
               method: 'dns',
               error: error,
               setup_instructions: [
@@ -177,7 +177,7 @@ class CloudNSService {
 
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'starting',
             message: 'Starting SSL installation with DNS challenge...'
           });
@@ -190,7 +190,7 @@ class CloudNSService {
           
           if (io) {
             io.emit('ssl_install_error', {
-              domain,
+              domain: primaryDomain,
               method: 'dns',
               error: error
             });
@@ -201,7 +201,7 @@ class CloudNSService {
 
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'dns_challenge',
             message: 'CloudNS connection verified. Starting DNS challenge...'
           });
@@ -213,40 +213,40 @@ class CloudNSService {
         
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'acme_init',
             message: 'Starting automated SSL certificate creation with acme.sh...'
           });
         }
 
         // Create certificate using acme.sh with CloudNS DNS API
-        const certificateResult = await acmeService.issueCertificate(domain, email, io);
+        const certificateResult = await acmeService.issueCertificate(domainArray, email, io);
         
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'nginx_update',
             message: 'Certificate created successfully. Updating nginx configuration...'
           });
         }
 
         // Update nginx configuration with the new certificate
-        await this.updateNginxSSLConfig(domain);
+        await this.updateNginxSSLConfig(primaryDomain);
         
         if (io) {
           io.emit('ssl_install_progress', {
-            domain,
+            domain: primaryDomain,
             stage: 'nginx_test',
             message: 'Testing nginx configuration...'
           });
         }
 
         // Test and reload nginx
-        await this.testAndReloadNginx(domain, io);
+        await this.testAndReloadNginx(primaryDomain, io);
         
         if (io) {
           io.emit('ssl_install_complete', {
-            domain,
+            domain: primaryDomain,
             method: 'dns',
             success: true,
             message: 'SSL certificate installed and configured automatically using acme.sh with CloudNS DNS.'
