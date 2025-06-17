@@ -74,7 +74,7 @@ router.get('/status', async (req, res) => {
     // Enhance domains with autorenewal status
     const domainsWithRenewal = await Promise.all(domains.map(async (domain) => {
       const domainConfig = config.domains[domain.domain] || {
-        enabled: domain.ssl?.hasSSL || false,
+        enabled: domain.ssl?.hasSSL ? true : false, // Enable by default for SSL domains
         lastRenewal: null,
         nextCheck: null,
         status: 'active'

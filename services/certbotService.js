@@ -346,9 +346,13 @@ class CertbotService {
         return reject(new Error('Domain is required'));
       }
 
+      // Strip www prefix if present to get the base domain
+      const baseDomain = domain.replace(/^www\./, '');
+      
+      // Use the base domain as cert-name since certificates are issued for both domain and www.domain
       const args = [
         'renew',
-        '--cert-name', domain,
+        '--cert-name', baseDomain,
         '--nginx',
         '--non-interactive'
       ];
@@ -357,7 +361,7 @@ class CertbotService {
         io.emit('ssl_renew_progress', { 
           domain, 
           stage: 'starting',
-          message: 'Starting certificate renewal...' 
+          message: `Starting certificate renewal for ${baseDomain} (includes www.${baseDomain})...` 
         });
       }
 

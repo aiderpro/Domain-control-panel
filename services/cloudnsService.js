@@ -173,7 +173,7 @@ class CloudNSService {
           });
         }
 
-        // Run certbot with DNS challenge
+        // Run certbot with DNS challenge for both domain and www subdomain
         const certbotCmd = [
           'sudo', 'certbot', 'certonly',
           '--manual',
@@ -183,7 +183,7 @@ class CloudNSService {
           '--email', email,
           '--agree-tos',
           '--no-eff-email',
-          '--domains', domain,
+          '--domains', `${domain},www.${domain}`,
           '--non-interactive'
         ].join(' ');
 

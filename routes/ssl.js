@@ -33,9 +33,61 @@ router.post('/install', async (req, res) => {
 
     const result = await certbotService.installCertificate(normalizedDomain, email, method, req.io);
 
+    // Auto-enable autorenewal for successful SSL installations
+    if (result.success) {
+      try {
+        const fs = require('fs').promises;
+        const path = require('path');
+        
+        // Load autorenewal configuration
+        const CONFIG_DIR = path.join(__dirname, '..', 'data');
+        const AUTORENEWAL_CONFIG_FILE = path.join(CONFIG_DIR, 'autorenewal.json');
+        
+        let config;
+        try {
+          await fs.mkdir(CONFIG_DIR, { recursive: true });
+          const configData = await fs.readFile(AUTORENEWAL_CONFIG_FILE, 'utf8');
+          config = JSON.parse(configData);
+        } catch (error) {
+          // Create default config if not exists
+          config = {
+            globalEnabled: true,
+            renewalDays: 30,
+            checkFrequency: 'daily',
+            domains: {},
+            lastCheck: null,
+            statistics: {
+              totalRenewals: 0,
+              successfulRenewals: 0,
+              failedRenewals: 0,
+              lastRenewalDate: null
+            }
+          };
+        }
+        
+        // Enable autorenewal for this domain
+        config.domains[normalizedDomain] = {
+          enabled: true,
+          lastRenewal: new Date().toISOString(),
+          nextCheck: null,
+          status: 'active',
+          method: method,
+          autoEnabledAt: new Date().toISOString()
+        };
+        
+        // Save updated config
+        await fs.writeFile(AUTORENEWAL_CONFIG_FILE, JSON.stringify(config, null, 2));
+        
+        console.log(`Auto-enabled SSL autorenewal for ${normalizedDomain}`);
+      } catch (autoRenewalError) {
+        console.error('Failed to auto-enable autorenewal:', autoRenewalError);
+        // Don't fail the SSL installation if autorenewal setup fails
+      }
+    }
+
     res.json({
       success: true,
-      message: `SSL certificate installation started for ${normalizedDomain} (including www.${normalizedDomain}) using ${method} method`,
+      message: `SSL certificate installation started for ${normalizedDomain} (including www.${normalizedDomain}) using ${method} method. Autorenewal enabled automatically.`,
       domain: normalizedDomain,
       method,
       result,
