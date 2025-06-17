@@ -479,6 +479,40 @@ class SSLManager {
     }
   }
 
+  getCurrentPageDomains() {
+    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
+    const endIndex = startIndex + this.itemsPerPage;
+    return this.filteredDomains.slice(startIndex, endIndex);
+  }
+
+  setPage(page) {
+    if (page >= 1 && page <= this.totalPages) {
+      this.currentPage = page;
+      this.renderDomainList();
+    }
+  }
+
+  setSearch(term) {
+    this.searchTerm = term;
+    this.currentPage = 1; // Reset to first page when searching
+    this.applyFiltersAndSort();
+    this.renderDomainList();
+  }
+
+  setStatusFilter(filter) {
+    this.statusFilter = filter;
+    this.currentPage = 1; // Reset to first page when filtering
+    this.applyFiltersAndSort();
+    this.renderDomainList();
+  }
+
+  setSorting(sortBy, sortOrder) {
+    this.sortBy = sortBy;
+    this.sortOrder = sortOrder;
+    this.applyFiltersAndSort();
+    this.renderDomainList();
+  }
+
   getSSLSortValue(ssl) {
     if (!ssl || !ssl.hasSSL) return 0;
     if (ssl.isExpired) return 1;
