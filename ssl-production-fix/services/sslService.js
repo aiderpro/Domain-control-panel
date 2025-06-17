@@ -1,25 +1,3 @@
-#!/bin/bash
-
-# Direct deployment to production server
-# This script copies the fixed SSL service files
-
-echo "Deploying SSL expiry fix directly..."
-
-# Create Git deployment files for easy transfer
-cat > git-ssl-fix.md << 'EOF'
-# Git Deployment Commands for SSL Fix
-
-## On your production server (cpanel.webeezix.in):
-
-```bash
-# 1. Navigate to your SSL manager directory
-cd /path/to/ssl-manager
-
-# 2. Backup current SSL service
-cp services/sslService.js services/sslService.js.backup
-
-# 3. Update the SSL service with this exact content:
-cat > services/sslService.js << 'SSLSERVICE'
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
@@ -33,7 +11,7 @@ class SSLService {
   async checkSSLStatus(domain) {
     console.log(`Checking AUTHENTIC SSL status for ${domain}...`);
     
-    // Method 1: Live SSL connection with TLS
+    // Method 1: Live SSL connection with your exact OpenSSL command
     try {
       const liveSSLData = await this.getLiveSSLStatus(domain);
       if (liveSSLData && liveSSLData.hasSSL) {
@@ -44,7 +22,7 @@ class SSLService {
       console.log(`Live SSL check failed for ${domain}:`, error.message);
     }
 
-    // Method 2: Certificate files with OpenSSL command
+    // Method 2: Certificate files with your exact OpenSSL command
     try {
       const fileSSLData = await this.getSSLFromFiles(domain);
       if (fileSSLData && fileSSLData.hasSSL) {
@@ -79,12 +57,13 @@ class SSLService {
   }
 
   /**
-   * Get SSL certificate information using live connection with TLS
+   * Get SSL certificate information using live connection with your exact OpenSSL command
    */
   async getLiveSSLStatus(domain) {
     try {
-      // Use Node.js TLS to get certificate info
+      // Simplified approach: use Node.js TLS to get certificate info
       const tls = require('tls');
+      const { promisify } = require('util');
       
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -149,7 +128,7 @@ class SSLService {
   }
 
   /**
-   * Get SSL certificate information from files using OpenSSL command
+   * Get SSL certificate information from files using your exact OpenSSL command
    */
   async getSSLFromFiles(domain) {
     const possiblePaths = [
@@ -173,7 +152,7 @@ class SSLService {
       try {
         await fs.access(certPath);
         
-        // OpenSSL command: openssl x509 -in /path/cert.pem -noout -enddate
+        // Your exact OpenSSL command: openssl x509 -in /path/cert.pem -noout -enddate
         const command = `openssl x509 -in ${certPath} -noout -enddate`;
         const { stdout } = await execAsync(command);
         
@@ -224,30 +203,3 @@ class SSLService {
 }
 
 module.exports = new SSLService();
-SSLSERVICE
-
-# 4. Restart the application
-pm2 restart ssl-manager || npm restart || (pkill -f "node server.js" && node server.js &)
-
-# 5. Test the fix
-echo "Testing SSL fix..."
-sleep 3
-curl -s "http://localhost:8000/api/domains" | grep -A5 "a3cabscochin" || echo "Server restarting..."
-
-echo "SSL service updated! Should now show July 23, 2025 for a3cabscochin.com"
-```
-
-## Expected Result:
-a3cabscochin.com will show:
-- Expires: July 23, 2025  
-- Days remaining: 36 days
-- Instead of September 15th demo data
-
-EOF
-
-echo "Git deployment guide created: git-ssl-fix.md"
-echo ""
-echo "MANUAL DEPLOYMENT STEPS:"
-echo "1. Copy the content from git-ssl-fix.md"
-echo "2. Run the commands on your production server"
-echo "3. The SSL service will show real certificate dates"
