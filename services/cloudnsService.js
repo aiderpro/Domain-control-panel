@@ -1,9 +1,14 @@
 const axios = require('axios');
-const { execAsync } = require('./nginxService');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const fs = require('fs').promises;
+const path = require('path');
+const execAsync = promisify(exec);
 
 class CloudNSService {
   constructor() {
     this.apiBaseUrl = 'https://api.cloudns.net';
+    this.configFile = path.join(__dirname, '..', '.cloudns-config');
     this.credentials = null;
   }
 
@@ -12,35 +17,13 @@ class CloudNSService {
    */
   async loadCredentials() {
     try {
-      const fs = require('fs').promises;
-      const configPath = '.cloudns-config';
-      
-      try {
-        await fs.access(configPath);
-      } catch (error) {
-        console.log('CloudNS config file not found at:', configPath);
-        return null;
-      }
-      
-      const configContent = await fs.readFile(configPath, 'utf8');
-      const config = {};
-      
-      configContent.split('\n').forEach(line => {
-        // Skip comments and empty lines
-        if (line.trim() && !line.trim().startsWith('#')) {
-          const [key, value] = line.split('=');
-          if (key && value) {
-            config[key.trim()] = value.trim();
-          }
-        }
-      });
-      
-      console.log('CloudNS config loaded. Found keys:', Object.keys(config));
-      this.credentials = config;
-      return config;
+      const configData = await fs.readFile(this.configFile, 'utf8');
+      this.credentials = JSON.parse(configData);
+      return true;
     } catch (error) {
-      console.error('Error loading CloudNS credentials:', error);
-      return null;
+      // Config file doesn't exist or is invalid
+      this.credentials = null;
+      return false;
     }
   }
 
@@ -48,38 +31,31 @@ class CloudNSService {
    * Check if CloudNS credentials are configured
    */
   async isConfigured() {
-    if (!this.credentials) {
-      await this.loadCredentials();
-    }
-    
-    return this.credentials && 
-           (this.credentials.AUTH_ID || this.credentials.SUB_AUTH_ID) && 
-           this.credentials.AUTH_PASSWORD;
+    await this.loadCredentials();
+    return !!(this.credentials && this.credentials.authId && this.credentials.authPassword);
   }
 
   /**
    * Get authentication parameters for CloudNS API
    */
   async getAuthParams() {
-    if (!this.credentials) {
-      await this.loadCredentials();
-    }
+    await this.loadCredentials();
     
     if (!this.credentials) {
       throw new Error('CloudNS credentials not configured');
     }
     
-    if (this.credentials.SUB_AUTH_ID) {
-      return {
-        'sub-auth-id': this.credentials.SUB_AUTH_ID,
-        'auth-password': this.credentials.AUTH_PASSWORD
-      };
+    const params = {};
+    
+    if (this.credentials.subAuthId) {
+      params['sub-auth-id'] = this.credentials.subAuthId;
+      params['auth-password'] = this.credentials.authPassword;
     } else {
-      return {
-        'auth-id': this.credentials.AUTH_ID,
-        'auth-password': this.credentials.AUTH_PASSWORD
-      };
+      params['auth-id'] = this.credentials.authId;
+      params['auth-password'] = this.credentials.authPassword;
     }
+    
+    return params;
   }
 
   /**
@@ -87,12 +63,18 @@ class CloudNSService {
    */
   async createTxtRecord(domain, recordName, recordValue) {
     try {
+      if (!(await this.isConfigured())) {
+        throw new Error('CloudNS credentials not configured');
+      }
+
+      // Extract the zone from the domain
       const zone = this.extractZone(domain);
+      
       const params = {
         ...(await this.getAuthParams()),
         'domain-name': zone,
         'record-type': 'TXT',
-        'host': recordName,
+        'host': recordName.replace(`.${zone}`, ''),
         'record': recordValue,
         'ttl': 300
       };
@@ -101,9 +83,17 @@ class CloudNSService {
         params: params
       });
 
-      return response.data;
+      if (response.data.status === 'Success') {
+        return {
+          success: true,
+          recordId: response.data.data.id,
+          message: 'TXT record created successfully'
+        };
+      } else {
+        throw new Error(response.data.statusDescription || 'Failed to create TXT record');
+      }
     } catch (error) {
-      console.error('Error creating TXT record:', error);
+      console.error('Error creating CloudNS TXT record:', error);
       throw error;
     }
   }
@@ -113,7 +103,12 @@ class CloudNSService {
    */
   async deleteTxtRecord(domain, recordId) {
     try {
+      if (!(await this.isConfigured())) {
+        throw new Error('CloudNS credentials not configured');
+      }
+
       const zone = this.extractZone(domain);
+      
       const params = {
         ...(await this.getAuthParams()),
         'domain-name': zone,
@@ -124,9 +119,16 @@ class CloudNSService {
         params: params
       });
 
-      return response.data;
+      if (response.data.status === 'Success') {
+        return {
+          success: true,
+          message: 'TXT record deleted successfully'
+        };
+      } else {
+        throw new Error(response.data.statusDescription || 'Failed to delete TXT record');
+      }
     } catch (error) {
-      console.error('Error deleting TXT record:', error);
+      console.error('Error deleting CloudNS TXT record:', error);
       throw error;
     }
   }
@@ -136,129 +138,82 @@ class CloudNSService {
    */
   extractZone(domain) {
     const parts = domain.split('.');
-    if (parts.length <= 2) {
-      return domain;
+    if (parts.length >= 2) {
+      return parts.slice(-2).join('.');
     }
-    
-    // For subdomains, use the last two parts as the zone
-    return parts.slice(-2).join('.');
+    return domain;
   }
 
   /**
    * Install SSL certificate using DNS challenge with CloudNS
    */
-  async installSSLWithDNS(domains, email, io = null) {
-    // Handle both single domain and array of domains
-    const domainArray = Array.isArray(domains) ? domains : [domains];
-    const primaryDomain = domainArray[0];
+  async installSSLWithDNS(domain, email, io = null) {
     return new Promise(async (resolve, reject) => {
       try {
-        // Check if CloudNS credentials are configured
         if (!(await this.isConfigured())) {
-          const error = 'CloudNS credentials not configured. Please create .cloudns-config file with AUTH_ID and AUTH_PASSWORD from your CloudNS account.';
-          
-          if (io) {
-            io.emit('ssl_install_error', {
-              domain: primaryDomain,
-              method: 'dns',
-              error: error,
-              setup_instructions: [
-                '1. Go to CloudNS.net and log into your account',
-                '2. Get your AUTH_ID and AUTH_PASSWORD from API settings',
-                '3. Copy .cloudns-config.example to .cloudns-config',
-                '4. Replace the placeholder values with your real credentials',
-                '5. Make sure the file is in the project root directory'
-              ]
-            });
-          }
-          
-          return reject(new Error(error));
+          throw new Error('CloudNS credentials not configured. Please create .cloudns-config file with your CloudNS API credentials.');
         }
 
         if (io) {
           io.emit('ssl_install_progress', {
-            domain: primaryDomain,
+            domain,
             stage: 'starting',
             message: 'Starting SSL installation with DNS challenge...'
           });
         }
 
-        // Test CloudNS connection first
-        const connectionTest = await this.testConnection();
-        if (!connectionTest.success) {
-          const error = `CloudNS API connection failed: ${connectionTest.message}`;
-          
-          if (io) {
-            io.emit('ssl_install_error', {
-              domain: primaryDomain,
-              method: 'dns',
-              error: error
-            });
-          }
-          
-          return reject(new Error(error));
-        }
+        // Create DNS challenge hook script
+        const hookScript = await this.createDNSHookScript();
 
         if (io) {
           io.emit('ssl_install_progress', {
-            domain: primaryDomain,
+            domain,
             stage: 'dns_challenge',
-            message: 'CloudNS connection verified. Starting DNS challenge...'
+            message: 'Requesting certificate with DNS challenge...'
           });
         }
 
-        // Use acme.sh for fully automated DNS certificate creation
-        const AcmeService = require('./acmeService');
-        const acmeService = new AcmeService();
-        
+        // Run certbot with DNS challenge
+        const certbotCmd = [
+          'sudo', 'certbot', 'certonly',
+          '--manual',
+          '--preferred-challenges=dns',
+          '--manual-auth-hook', hookScript,
+          '--manual-cleanup-hook', hookScript,
+          '--email', email,
+          '--agree-tos',
+          '--no-eff-email',
+          '--domains', domain,
+          '--non-interactive'
+        ].join(' ');
+
+        const { stdout, stderr } = await execAsync(certbotCmd);
+
         if (io) {
           io.emit('ssl_install_progress', {
-            domain: primaryDomain,
-            stage: 'acme_init',
-            message: 'Starting automated SSL certificate creation with acme.sh...'
+            domain,
+            stage: 'updating_nginx',
+            message: 'Updating nginx configuration...'
           });
         }
 
-        // Create certificate using acme.sh with CloudNS DNS API
-        const certificateResult = await acmeService.issueCertificate(domainArray, email, io);
-        
-        if (io) {
-          io.emit('ssl_install_progress', {
-            domain: primaryDomain,
-            stage: 'nginx_update',
-            message: 'Certificate created successfully. Updating nginx configuration...'
-          });
-        }
+        // Update nginx configuration to use the new certificate
+        await this.updateNginxSSLConfig(domain);
 
-        // Update nginx configuration with the new certificate
-        await this.updateNginxSSLConfig(primaryDomain);
-        
-        if (io) {
-          io.emit('ssl_install_progress', {
-            domain: primaryDomain,
-            stage: 'nginx_test',
-            message: 'Testing nginx configuration...'
-          });
-        }
-
-        // Test and reload nginx
-        await this.testAndReloadNginx(primaryDomain, io);
-        
         if (io) {
           io.emit('ssl_install_complete', {
-            domain: primaryDomain,
+            domain,
             method: 'dns',
             success: true,
-            message: 'SSL certificate installed and configured automatically using acme.sh with CloudNS DNS.'
+            message: 'SSL certificate installed successfully using DNS method'
           });
         }
 
         resolve({
           success: true,
           method: 'dns',
-          message: 'SSL certificate installed and configured automatically using acme.sh with CloudNS DNS.',
-          certificatePath: certificateResult.certificatePath,
-          keyPath: certificateResult.keyPath
+          message: 'SSL certificate installed successfully using DNS method',
+          output: stdout
         });
 
       } catch (error) {
@@ -277,177 +232,102 @@ class CloudNSService {
     });
   }
 
+  /**
+   * Create DNS hook script for certbot manual mode
+   */
+  async createDNSHookScript() {
+    const hookScript = '/tmp/cloudns-hook.sh';
+    
+    const scriptContent = `#!/bin/bash
 
+# CloudNS DNS Challenge Hook Script
+DOMAIN="$CERTBOT_DOMAIN"
+VALIDATION="$CERTBOT_VALIDATION"
+TOKEN="$CERTBOT_TOKEN"
+
+# CloudNS API credentials will be loaded from config
+AUTH_ID="${this.credentials?.authId || ''}"
+AUTH_PASSWORD="${this.credentials?.authPassword || ''}"
+SUB_AUTH_ID="${this.credentials?.subAuthId || ''}"
+
+# Determine record name for DNS challenge
+RECORD_NAME="_acme-challenge"
+if [ "$DOMAIN" != "$CERTBOT_DOMAIN" ]; then
+    RECORD_NAME="_acme-challenge.$CERTBOT_DOMAIN"
+fi
+
+# Extract zone from domain
+ZONE=$(echo "$DOMAIN" | sed 's/.*\\.\\([^.]*\\.[^.]*\\)$/\\1/')
+
+# Set auth parameters
+if [ -n "$SUB_AUTH_ID" ]; then
+    AUTH_PARAMS="sub-auth-id=$SUB_AUTH_ID&auth-password=$AUTH_PASSWORD"
+else
+    AUTH_PARAMS="auth-id=$AUTH_ID&auth-password=$AUTH_PASSWORD"
+fi
+
+if [ "$1" = "cleanup" ]; then
+    # Cleanup mode - delete the TXT record
+    # This would require storing the record ID, for now we'll skip cleanup
+    echo "Cleanup not implemented in this version"
+else
+    # Create TXT record
+    curl -X POST "https://api.cloudns.net/dns/add-record.json" \\
+        -d "$AUTH_PARAMS&domain-name=$ZONE&record-type=TXT&host=$RECORD_NAME&record=$VALIDATION&ttl=300"
+    
+    # Wait for DNS propagation
+    echo "Waiting for DNS propagation..."
+    sleep 30
+fi
+`;
+
+    await require('fs').promises.writeFile(hookScript, scriptContent);
+    await execAsync(`chmod +x ${hookScript}`);
+    
+    return hookScript;
+  }
 
   /**
    * Update nginx configuration to use SSL certificate
    */
   async updateNginxSSLConfig(domain) {
     try {
-      const configPath = `/etc/nginx/sites-available/${domain}`;
-      const nginxConfig = this.generateCompleteNginxConfig(domain);
+      const nginxConfigPath = `/etc/nginx/sites-available/${domain}`;
       
-      // Create escaped configuration for shell
-      const escapedConfig = nginxConfig.replace(/'/g, "'\"'\"'");
+      // Read current config
+      const currentConfig = await require('fs').promises.readFile(nginxConfigPath, 'utf8');
       
-      // Write the complete nginx configuration
-      await execAsync(`echo '${escapedConfig}' | sudo tee ${configPath}`);
-      
-      // Enable the site if not already enabled
-      await execAsync(`sudo ln -sf ${configPath} /etc/nginx/sites-enabled/${domain}`);
-      
-      return true;
-    } catch (error) {
-      console.error(`Error updating nginx config for ${domain}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate complete nginx configuration with SSL
-   */
-  generateCompleteNginxConfig(domain) {
-    return `# HTTP redirect to HTTPS
-server {
-    listen 80;
-    server_name ${domain} www.${domain};
-    return 301 https://$server_name$request_uri;
-}
-
-# HTTPS configuration
-server {
-    listen 443 ssl http2;
-    server_name ${domain} www.${domain};
-    
+      // Add SSL configuration
+      const sslConfig = `
+    # SSL Configuration added by SSL Manager
+    listen 443 ssl;
     ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
     
-    # SSL configuration
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-    
-    root /data/site/public;
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
-    add_header X-Content-Type-Options "nosniff";
-    index index.php index.html index.htm;
-    charset utf-8;
-    
-    location / {
-        proxy_read_timeout 60;
-        proxy_connect_timeout 60;
-        proxy_redirect off;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_pass http://localhost:3000;
-    }
-    
-    location @rules {
-        rewrite ^(.*)$ $1.php last;
-    }
-    
-    location = /favicon.ico {
-        access_log off;
-        log_not_found off;
-    }
-    
-    location = /robots.txt {
-        access_log off;
-        log_not_found off;
-    }
-    
-    error_page 404 /index.php;
-    
-    location ~ \\.php$ {
-        fastcgi_pass unix:/var/run/php-fpm/www.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-    
-    location ~ /\\.(?!well-known).* {
-        deny all;
-    }
-}`;
-
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    
-    server_name ${domain};
-    root /var/www/html;
-    index index.html index.htm index.php;
-    
-    # SSL Certificate paths
-    ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
-    
-    # SSL Security settings
+    # Modern SSL configuration
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-    
-    # Security headers
-    add_header Strict-Transport-Security "max-age=63072000" always;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    
-    location / {
-        try_files $uri $uri/ =404;
-    }
-}
+    ssl_session_timeout 10m;
+`;
 
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${domain};
-    return 301 https://$server_name$request_uri;
-}`;
-  }
+      // Insert SSL config after the first server block opening
+      const updatedConfig = currentConfig.replace(
+        /server\s*{[^}]*listen\s+80;/,
+        (match) => match + sslConfig
+      );
 
-  /**
-   * Test nginx configuration and reload if valid
-   */
-  async testAndReloadNginx(domain, io = null) {
-    try {
-      // Test nginx configuration
+      // Write updated config
+      await require('fs').promises.writeFile(nginxConfigPath, updatedConfig);
+      
+      // Test and reload nginx
       await execAsync('sudo nginx -t');
-      
-      if (io) {
-        io.emit('ssl_install_progress', {
-          domain,
-          stage: 'nginx_reload',
-          message: 'Nginx configuration valid. Reloading nginx...'
-        });
-      }
-      
-      // Reload nginx
       await execAsync('sudo systemctl reload nginx');
       
-      return true;
     } catch (error) {
-      console.error('Nginx test/reload failed:', error);
-      
-      if (io) {
-        io.emit('ssl_install_progress', {
-          domain,
-          stage: 'nginx_error',
-          message: `Nginx configuration error: ${error.message}`
-        });
-      }
-      
-      throw new Error(`Nginx configuration failed: ${error.message}`);
+      console.error('Error updating nginx SSL config:', error);
+      throw error;
     }
   }
 
