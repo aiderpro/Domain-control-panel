@@ -899,7 +899,6 @@ class SSLManager {
               </div>
 
               <!-- Pagination -->
-              ```text
               <div id="pagination-container" class="mt-3">
                 <!-- Pagination will be rendered here -->
               </div>
