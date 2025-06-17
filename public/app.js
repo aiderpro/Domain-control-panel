@@ -249,8 +249,14 @@ class SSLManager {
           this.renderSSLPanel();
         }
         
-        this.addNotification('info', `SSL certificate data updated for ${data.domain}`, false);
+        this.addNotification('success', `SSL certificate data updated for ${data.domain}`, true);
       }
+    });
+
+    // General domain refresh trigger
+    this.socket.on('domain_refresh_needed', () => {
+      console.log('Domain refresh triggered, reloading all domain data...');
+      this.loadDomains();
     });
   }
 

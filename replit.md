@@ -159,6 +159,7 @@ Changelog:
 - June 17, 2025: Migrated application from sitedev.eezix.com to cpanel.webeezix.in - Updated frontend API configuration and server CORS settings
 - June 17, 2025: Created domain migration tooling and comprehensive troubleshooting documentation for production deployments
 - June 17, 2025: FIXED SSL EXPIRY DATE ISSUES - Removed all demo data showing September 15th dates, updated SSL service to fetch authentic certificate expiry information from live connections and certificate files, enhanced certificate parsing with proper date validation and accurate days remaining calculations
+- June 17, 2025: FIXED SSL DATA REFRESH AFTER RENEWALS - SSL certificate data now properly refreshes after Let's Encrypt renewals, certificate files checked first for most accurate post-renewal data, automatic domain data refresh triggers after SSL operations, manual refresh button added for immediate SSL data updates
 ```
 
 ## User Preferences
