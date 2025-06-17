@@ -10,6 +10,7 @@ const sslRoutes = require('./routes/ssl');
 const nginxConfigRoutes = require('./routes/nginx-config');
 const autorenewalRoutes = require('./routes/autorenewal');
 const cloudnsConfigRoutes = require('./routes/cloudns-config');
+const sslRefreshRoutes = require('./routes/ssl-refresh');
 
 const app = express();
 const server = http.createServer(app);
@@ -206,9 +207,9 @@ const addIoToReq = (req, res, next) => {
 
 app.use('/api/domains', requireAuth, domainsRoutes);
 app.use('/api/ssl', requireAuth, sslRoutes);
+app.use('/api/ssl-refresh', requireAuth, sslRefreshRoutes);
 app.use('/api/nginx', requireAuth, nginxConfigRoutes);
 app.use('/api/autorenewal', requireAuth, autorenewalRoutes);
-app.use('/api/cloudns', requireAuth, cloudnsConfigRoutes);
 app.use('/api/cloudns', requireAuth, cloudnsConfigRoutes);
 
 // Health check endpoint

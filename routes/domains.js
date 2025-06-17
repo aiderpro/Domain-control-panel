@@ -37,8 +37,14 @@ router.get('/', async (req, res) => {
 
           let sslInfo;
           
-          // Always check SSL status regardless of nginx config
-          sslInfo = await sslService.checkSSLStatus(domain.domain);
+          // Force fresh SSL check for accurate statistics
+          const forceRefresh = req.query.force === 'true';
+          sslInfo = await sslService.checkSSLStatus(domain.domain, forceRefresh);
+          
+          // If no SSL found, try enhanced detection
+          if (!sslInfo || !sslInfo.hasSSL) {
+            sslInfo = await sslService.checkMultipleCertPaths(domain.domain);
+          }
           
           if (!sslInfo || !sslInfo.hasSSL) {
             if (hasSSLConfig) {
