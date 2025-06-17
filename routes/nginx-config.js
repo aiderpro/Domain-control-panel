@@ -66,47 +66,47 @@ class NginxConfigManager {
    */
   generateNginxConfig(domain) {
     return `server {
-server_name ${domain} www.${domain};
-root /data/site/public;
-add_header X-Frame-Options "SAMEORIGIN";
-add_header X-XSS-Protection "1; mode=block";
-add_header X-Content-Type-Options "nosniff";
-index index.php index.html index.htm;
-charset utf-8;
-location / {
-proxy_read_timeout 60;
-proxy_connect_timeout 60;
-proxy_redirect off;
-proxy_http_version 1.1;
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection 'upgrade';
-proxy_cache_bypass $http_upgrade;
-proxy_set_header Host $host ;
-proxy_set_header X-Real-IP $remote_addr ;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for ;
-proxy_set_header X-Forwarded-Proto https;
-proxy_pass http://localhost:3000;
-}
-location @rules {
-rewrite ^(.)$ $1.php last;
-}
-location = /favicon.ico {
-access_log off;
-log_not_found off;
-}
-location = /robots.txt {
-access_log off;
-log_not_found off;
-}
-error_page 404 /index.php;
-location ~ .php$ {
-fastcgi_pass unix:/var/run/php-fpm/www.sock;
-fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-include fastcgi_params;
-}
-location ~ /.(?!well-known). {
-deny all;
-}
+    server_name ${domain} www.${domain};
+    root /data/site/public;
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+    index index.php index.html index.htm;
+    charset utf-8;
+    location / {
+        proxy_read_timeout 60;
+        proxy_connect_timeout 60;
+        proxy_redirect off;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host $host ;
+        proxy_set_header X-Real-IP $remote_addr ;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for ;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://localhost:3000;
+    }
+    location @rules {
+        rewrite ^(.*)$ $1.php last;
+    }
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+    }
+    location = /robots.txt {
+        access_log off;
+        log_not_found off;
+    }
+    error_page 404 /index.php;
+    location ~ \\.php$ {
+        fastcgi_pass unix:/var/run/php-fpm/www.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    location ~ /\\.(?!well-known).* {
+        deny all;
+    }
 }`;
   }
 
