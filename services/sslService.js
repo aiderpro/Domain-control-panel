@@ -5,201 +5,270 @@ const fs = require('fs').promises;
 const execAsync = promisify(exec);
 
 class SSLService {
+  constructor() {
+    this.sslCache = new Map(); // Cache SSL results to prevent fluctuations
+    this.cacheTimeout = 300000; // 5 minutes cache
+  }
+
   /**
-   * Check SSL certificate status using ONLY authentic data - NO DEMO DATA
+   * Check SSL certificate status using cached results to prevent fluctuations
    */
   async checkSSLStatus(domain) {
-    console.log(`Checking AUTHENTIC SSL status for ${domain}...`);
-    
-    // Method 1: Live SSL connection with your exact OpenSSL command
-    try {
-      const liveSSLData = await this.getLiveSSLStatus(domain);
-      if (liveSSLData && liveSSLData.hasSSL) {
-        console.log(`AUTHENTIC SSL found for ${domain}: expires ${liveSSLData.expiryDate}, ${liveSSLData.daysUntilExpiry} days remaining`);
-        return liveSSLData;
-      }
-    } catch (error) {
-      console.log(`Live SSL check failed for ${domain}:`, error.message);
+    // Check cache first to prevent fluctuations
+    const cached = this.sslCache.get(domain);
+    if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
+      console.log(`Using cached SSL status for ${domain}`);
+      return cached.data;
     }
 
-    // Method 2: Certificate files with your exact OpenSSL command
+    console.log(`Checking AUTHENTIC SSL status for ${domain}...`);
+    
+    // Method 1: Try certificate files first (most reliable)
     try {
       const fileSSLData = await this.getSSLFromFiles(domain);
       if (fileSSLData && fileSSLData.hasSSL) {
         console.log(`AUTHENTIC file SSL found for ${domain}: expires ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
+        this.cacheSSLResult(domain, fileSSLData);
         return fileSSLData;
       }
     } catch (error) {
       console.log(`File SSL check failed for ${domain}:`, error.message);
     }
 
+    // Method 2: Live SSL connection with timeout protection
+    try {
+      const liveSSLData = await this.getLiveSSLStatusWithTimeout(domain, 5000);
+      if (liveSSLData && liveSSLData.hasSSL) {
+        console.log(`AUTHENTIC SSL found for ${domain}: expires ${liveSSLData.expiryDate}, ${liveSSLData.daysUntilExpiry} days remaining`);
+        this.cacheSSLResult(domain, liveSSLData);
+        return liveSSLData;
+      }
+    } catch (error) {
+      console.log(`Live SSL check failed for ${domain}:`, error.message);
+    }
+
     // Method 3: Try with www prefix
     if (!domain.startsWith('www.')) {
       try {
-        const wwwSSLData = await this.getLiveSSLStatus(`www.${domain}`);
+        const wwwSSLData = await this.getLiveSSLStatusWithTimeout(`www.${domain}`, 5000);
         if (wwwSSLData && wwwSSLData.hasSSL) {
           console.log(`AUTHENTIC www SSL found for ${domain}: expires ${wwwSSLData.expiryDate}, ${wwwSSLData.daysUntilExpiry} days remaining`);
-          return { ...wwwSSLData, domain }; // Return with original domain
+          const result = { ...wwwSSLData, domain }; // Return with original domain
+          this.cacheSSLResult(domain, result);
+          return result;
         }
       } catch (error) {
         console.log(`www SSL check failed for ${domain}:`, error.message);
       }
     }
 
-    // No SSL certificate found
+    // No SSL certificate found - cache this result too to prevent repeated checks
     console.log(`No authentic SSL certificate found for ${domain}`);
-    return {
-      status: 'no_ssl',
+    const noSSLResult = {
       hasSSL: false,
+      status: 'no_ssl',
       domain,
-      message: 'No SSL certificate found'
+      expiryDate: null,
+      daysUntilExpiry: null,
+      isExpired: false,
+      isExpiringSoon: false,
+      issuer: null,
+      source: 'none'
     };
+    
+    this.cacheSSLResult(domain, noSSLResult);
+    return noSSLResult;
   }
 
   /**
-   * Get SSL certificate information using live connection with your exact OpenSSL command
+   * Cache SSL results to prevent fluctuations
    */
-  async getLiveSSLStatus(domain) {
-    try {
-      // Simplified approach: use Node.js TLS to get certificate info
-      const tls = require('tls');
-      const { promisify } = require('util');
-      
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error(`SSL check timeout for ${domain}`));
-        }, 10000);
+  cacheSSLResult(domain, data) {
+    this.sslCache.set(domain, {
+      data,
+      timestamp: Date.now()
+    });
+  }
 
+  /**
+   * Clear SSL cache for a domain (use after SSL operations)
+   */
+  clearSSLCache(domain) {
+    this.sslCache.delete(domain);
+    // Also clear www variant
+    if (!domain.startsWith('www.')) {
+      this.sslCache.delete(`www.${domain}`);
+    } else {
+      this.sslCache.delete(domain.replace('www.', ''));
+    }
+  }
+
+  /**
+   * Clear all SSL cache
+   */
+  clearAllSSLCache() {
+    this.sslCache.clear();
+  }
+
+  /**
+   * Get SSL certificate information using live connection with timeout protection
+   */
+  async getLiveSSLStatusWithTimeout(domain, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      const tls = require('tls');
+      
+      const timeout = setTimeout(() => {
+        console.log(`SSL check timeout for ${domain} after ${timeoutMs}ms`);
+        resolve(null); // Don't reject, just return null
+      }, timeoutMs);
+
+      try {
         const socket = tls.connect(443, domain, {
           servername: domain,
-          rejectUnauthorized: false
+          rejectUnauthorized: false,
+          timeout: timeoutMs - 1000 // Leave 1 second buffer
         }, () => {
           clearTimeout(timeout);
           
-          const cert = socket.getPeerCertificate();
-          socket.destroy();
-          
-          if (!cert || !cert.valid_to) {
+          try {
+            const cert = socket.getPeerCertificate();
+            socket.destroy();
+            
+            if (!cert || !cert.valid_to) {
+              console.log(`No valid certificate found for ${domain}`);
+              resolve(null);
+              return;
+            }
+
+            const expiryDate = new Date(cert.valid_to);
+            if (isNaN(expiryDate.getTime())) {
+              resolve(null);
+              return;
+            }
+
+            // Calculate remaining days
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+            const expiry = new Date(expiryDate);
+            expiry.setHours(0, 0, 0, 0);
+            
+            const timeDiff = expiry.getTime() - now.getTime();
+            const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+
+            resolve({
+              hasSSL: true,
+              status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
+              domain,
+              expiryDate: expiryDate.toISOString(),
+              daysUntilExpiry: daysRemaining,
+              isExpired: daysRemaining < 0,
+              isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
+              issuer: cert.issuer?.O || 'Unknown',
+              source: 'tls_connection'
+            });
+          } catch (certError) {
+            console.log(`Error processing certificate for ${domain}:`, certError.message);
+            socket.destroy();
             resolve(null);
-            return;
           }
-
-          const expiryDate = new Date(cert.valid_to);
-          if (isNaN(expiryDate.getTime())) {
-            resolve(null);
-            return;
-          }
-
-          // Calculate remaining days
-          const now = new Date();
-          now.setHours(0, 0, 0, 0);
-          const expiry = new Date(expiryDate);
-          expiry.setHours(0, 0, 0, 0);
-          
-          const timeDiff = expiry.getTime() - now.getTime();
-          const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-
-          console.log(`AUTHENTIC SSL for ${domain}: expires ${expiryDate.toISOString()}, ${daysRemaining} days remaining`);
-
-          resolve({
-            hasSSL: true,
-            status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
-            domain,
-            expiryDate: expiryDate.toISOString(),
-            daysUntilExpiry: daysRemaining,
-            isExpired: daysRemaining < 0,
-            isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
-            issuer: cert.issuer?.O || 'Unknown',
-            source: 'tls_connection'
-          });
         });
 
         socket.on('error', (error) => {
           clearTimeout(timeout);
           console.log(`SSL connection failed for ${domain}:`, error.message);
+          resolve(null); // Don't reject, just return null
+        });
+
+        socket.on('timeout', () => {
+          clearTimeout(timeout);
+          socket.destroy();
+          console.log(`SSL connection timeout for ${domain}`);
           resolve(null);
         });
-      });
-      
-    } catch (error) {
-      console.log(`Failed to get live SSL for ${domain}:`, error.message);
-      return null;
-    }
+
+      } catch (error) {
+        clearTimeout(timeout);
+        console.log(`Failed to connect to ${domain}:`, error.message);
+        resolve(null);
+      }
+    });
   }
 
   /**
-   * Get SSL certificate information from files using your exact OpenSSL command
+   * Get SSL certificate information from files using OpenSSL command
    */
   async getSSLFromFiles(domain) {
-    const possiblePaths = [
-      `/etc/letsencrypt/live/${domain}/cert.pem`,
-      `/etc/ssl/acme/${domain}/cert.pem`,
-      `/root/.acme.sh/${domain}/cert.pem`,
-      `/etc/ssl/certs/${domain}.pem`
-    ];
-
-    // Also check for www variant
-    if (!domain.startsWith('www.')) {
-      possiblePaths.push(
-        `/etc/letsencrypt/live/www.${domain}/cert.pem`,
-        `/etc/ssl/acme/www.${domain}/cert.pem`,
-        `/root/.acme.sh/www.${domain}/cert.pem`,
-        `/etc/ssl/certs/www.${domain}.pem`
-      );
-    }
-
-    for (const certPath of possiblePaths) {
+    try {
+      const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
+      
+      // Check if certificate file exists
       try {
         await fs.access(certPath);
-        
-        // Your exact OpenSSL command: openssl x509 -in /path/cert.pem -noout -enddate
-        const command = `openssl x509 -in ${certPath} -noout -enddate`;
-        const { stdout } = await execAsync(command);
-        
-        if (stdout.trim()) {
-          console.log(`File SSL output for ${domain} from ${certPath}:`, stdout.trim());
-          
-          // Parse the enddate output: "notAfter=Jul 23 09:13:49 2025 GMT"
-          const endDateMatch = stdout.match(/notAfter=(.+)/);
-          if (!endDateMatch) {
-            continue;
-          }
-
-          const expiryDate = new Date(endDateMatch[1]);
-          if (isNaN(expiryDate.getTime())) {
-            continue;
-          }
-
-          // Calculate remaining days
-          const now = new Date();
-          now.setHours(0, 0, 0, 0);
-          const expiry = new Date(expiryDate);
-          expiry.setHours(0, 0, 0, 0);
-          
-          const timeDiff = expiry.getTime() - now.getTime();
-          const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-
-          console.log(`AUTHENTIC file SSL for ${domain}: expires ${expiryDate.toISOString()}, ${daysRemaining} days remaining`);
-
-          return {
-            hasSSL: true,
-            status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
-            domain,
-            expiryDate: expiryDate.toISOString(),
-            daysUntilExpiry: daysRemaining,
-            isExpired: daysRemaining < 0,
-            isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
-            issuer: 'Let\'s Encrypt',
-            source: certPath
-          };
-        }
       } catch (error) {
-        // Continue to next path
+        // Try without www prefix
+        if (domain.startsWith('www.')) {
+          const noDomainPath = `/etc/letsencrypt/live/${domain.replace('www.', '')}/fullchain.pem`;
+          try {
+            await fs.access(noDomainPath);
+            return await this.getSSLFromFiles(domain.replace('www.', ''));
+          } catch (e) {
+            return null;
+          }
+        }
+        return null;
       }
+
+      // Get certificate expiry date using OpenSSL
+      const { stdout } = await execAsync(`openssl x509 -enddate -noout -in "${certPath}"`);
+      const expiryMatch = stdout.match(/notAfter=(.+)/);
+      
+      if (!expiryMatch) {
+        return null;
+      }
+
+      const expiryDate = new Date(expiryMatch[1]);
+      if (isNaN(expiryDate.getTime())) {
+        return null;
+      }
+
+      // Calculate remaining days
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const expiry = new Date(expiryDate);
+      expiry.setHours(0, 0, 0, 0);
+      
+      const timeDiff = expiry.getTime() - now.getTime();
+      const daysRemaining = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+
+      // Get issuer information
+      let issuer = 'Unknown';
+      try {
+        const { stdout: issuerOutput } = await execAsync(`openssl x509 -issuer -noout -in "${certPath}"`);
+        const issuerMatch = issuerOutput.match(/O\s*=\s*([^,]+)/);
+        if (issuerMatch) {
+          issuer = issuerMatch[1].trim();
+        }
+      } catch (issuerError) {
+        console.log(`Could not get issuer for ${domain}:`, issuerError.message);
+      }
+
+      return {
+        hasSSL: true,
+        status: daysRemaining < 0 ? 'expired' : (daysRemaining <= 30 ? 'expiring_soon' : 'active'),
+        domain,
+        expiryDate: expiryDate.toISOString(),
+        daysUntilExpiry: daysRemaining,
+        isExpired: daysRemaining < 0,
+        isExpiringSoon: daysRemaining <= 30 && daysRemaining >= 0,
+        issuer,
+        source: 'certificate_file'
+      };
+
+    } catch (error) {
+      console.log(`Failed to get SSL from files for ${domain}:`, error.message);
+      return null;
     }
-    
-    return null;
   }
 }
 
-module.exports = new SSLService();
+module.exports = SSLService;

@@ -673,6 +673,26 @@ class SSLManager {
     }
   }
 
+  async clearSSLCache(domain = null) {
+    try {
+      const payload = domain ? { domain } : {};
+      this.addNotification('info', domain ? `Clearing SSL cache for ${domain}...` : 'Clearing all SSL cache...', true);
+      
+      const response = await this.api('POST', '/ssl/clear-cache', payload);
+      
+      if (response.success) {
+        this.addNotification('success', response.message);
+        // Refresh domains after clearing cache
+        await this.loadDomains();
+      } else {
+        this.addNotification('error', `Cache clear failed: ${response.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error clearing SSL cache:', error);
+      this.addNotification('error', 'Failed to clear SSL cache');
+    }
+  }
+
   async refreshSSLData(domain) {
     try {
       this.addNotification('info', `Refreshing SSL certificate data for ${domain}...`, false);

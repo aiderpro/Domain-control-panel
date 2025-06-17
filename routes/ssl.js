@@ -53,6 +53,37 @@ router.get('/queue', async (req, res) => {
   }
 });
 
+// Clear SSL cache to force fresh status checks
+router.post('/clear-cache', async (req, res) => {
+  try {
+    const { domain } = req.body;
+    
+    if (domain) {
+      sslService.clearSSLCache(domain);
+      res.json({
+        success: true,
+        message: `SSL cache cleared for ${domain}`,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      sslService.clearAllSSLCache();
+      res.json({
+        success: true,
+        message: 'All SSL cache cleared',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('Error clearing SSL cache:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear SSL cache',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Install new SSL certificate
 router.post('/install', async (req, res) => {
   try {
@@ -88,6 +119,9 @@ router.post('/install', async (req, res) => {
       try {
         const fs = require('fs').promises;
         const path = require('path');
+        
+        // Clear SSL cache for this domain to ensure fresh status
+        sslService.clearSSLCache(normalizedDomain);
         
         // Load autorenewal configuration
         const CONFIG_DIR = path.join(__dirname, '..', 'data');
