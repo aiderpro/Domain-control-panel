@@ -469,59 +469,52 @@ class AutoRenewalService {
   }
 
   /**
-   * Setup cron job for automatic renewal checking
+   * Setup automatic renewal checking (Node.js based for Replit environment)
    */
   async setupCronJob(frequency) {
     try {
-      // Clear existing cron job
-      await this.clearCronJob();
-
-      let cronExpression;
-      switch (frequency) {
-        case 'hourly':
-          cronExpression = '0 * * * *'; // Every hour
-          break;
-        case 'twice-daily':
-          cronExpression = '0 6,18 * * *'; // 6 AM and 6 PM
-          break;
-        case 'daily':
-          cronExpression = '0 2 * * *'; // 2 AM daily
-          break;
-        case 'weekly':
-          cronExpression = '0 2 * * 0'; // 2 AM on Sundays
-          break;
-        default:
-          cronExpression = '0 2 * * *'; // Default to daily
+      // Clear existing interval
+      if (this.cronJob) {
+        clearInterval(this.cronJob);
+        this.cronJob = null;
       }
 
-      const scriptPath = path.join(__dirname, '..', 'scripts', 'autorenewal-cron.sh');
-      const cronCommand = `${cronExpression} ${scriptPath}`;
+      let intervalMs;
+      switch (frequency) {
+        case 'hourly':
+          intervalMs = 60 * 60 * 1000; // Every hour
+          break;
+        case 'twice-daily':
+          intervalMs = 12 * 60 * 60 * 1000; // Every 12 hours
+          break;
+        case 'daily':
+          intervalMs = 24 * 60 * 60 * 1000; // Every 24 hours
+          break;
+        case 'weekly':
+          intervalMs = 7 * 24 * 60 * 60 * 1000; // Every 7 days
+          break;
+        default:
+          intervalMs = 24 * 60 * 60 * 1000; // Default to daily
+      }
 
-      // Create the cron script
-      await this.createCronScript(scriptPath);
+      // Setup Node.js interval for automatic checking
+      this.cronJob = setInterval(async () => {
+        try {
+          console.log('Running scheduled SSL renewal check...');
+          await this.performRenewalCheck();
+        } catch (error) {
+          console.error('Scheduled renewal check failed:', error);
+          await this.logActivity('SYSTEM', 'SCHEDULED_CHECK_ERROR', error.message);
+        }
+      }, intervalMs);
 
-      // Add to crontab
-      const { stdout } = await execAsync('crontab -l 2>/dev/null || echo ""');
-      const existingCron = stdout.trim();
-      
-      // Remove any existing autorenewal cron
-      const filteredCron = existingCron
-        .split('\n')
-        .filter(line => !line.includes('autorenewal-cron.sh'))
-        .join('\n');
-
-      const newCron = filteredCron + (filteredCron ? '\n' : '') + cronCommand;
-      
-      // Write new crontab
-      await execAsync(`echo "${newCron}" | crontab -`);
-
-      await this.logActivity('SYSTEM', 'CRON_SETUP', `Cron job configured for ${frequency} checks`);
-      console.log(`AutoRenewal cron job setup: ${frequency} (${cronExpression})`);
+      await this.logActivity('SYSTEM', 'SCHEDULER_SETUP', `Automatic renewal scheduler configured for ${frequency} checks`);
+      console.log(`AutoRenewal scheduler setup: ${frequency} (every ${intervalMs / 1000 / 60} minutes)`);
 
       return true;
     } catch (error) {
-      console.error('Error setting up cron job:', error);
-      await this.logActivity('SYSTEM', 'CRON_ERROR', error.message);
+      console.error('Error setting up renewal scheduler:', error);
+      await this.logActivity('SYSTEM', 'SCHEDULER_ERROR', error.message);
       return false;
     }
   }
@@ -558,23 +551,16 @@ service.performRenewalCheck().then(result => {
    */
   async clearCronJob() {
     try {
-      const { stdout } = await execAsync('crontab -l 2>/dev/null || echo ""');
-      const filteredCron = stdout
-        .split('\n')
-        .filter(line => !line.includes('autorenewal-cron.sh'))
-        .join('\n')
-        .trim();
-
-      if (filteredCron) {
-        await execAsync(`echo "${filteredCron}" | crontab -`);
-      } else {
-        await execAsync('crontab -r 2>/dev/null || true');
+      if (this.cronJob) {
+        clearInterval(this.cronJob);
+        this.cronJob = null;
+        await this.logActivity('SYSTEM', 'SCHEDULER_CLEARED', 'Automatic renewal scheduler stopped');
+        console.log('AutoRenewal scheduler cleared');
       }
-
-      await this.logActivity('SYSTEM', 'CRON_CLEARED', 'Existing cron job removed');
       return true;
     } catch (error) {
-      console.error('Error clearing cron job:', error);
+      console.error('Error clearing renewal scheduler:', error);
+      await this.logActivity('SYSTEM', 'SCHEDULER_CLEAR_ERROR', error.message);
       return false;
     }
   }

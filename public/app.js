@@ -1884,12 +1884,29 @@ class SSLManager {
 
   async runRenewalCheck() {
     try {
-      this.addNotification('info', 'Starting SSL renewal check for all domains...', false);
-
+      this.addNotification('info', 'Starting comprehensive SSL renewal check for all domains...', true);
+      
       const response = await this.api('POST', '/autorenewal/check');
-
-      if (response.success){
-        this.addNotification('success', 'Renewal check completed successfully', true);
+      
+      if (response.success) {
+        const result = response.result;
+        if (result && result.results) {
+          const { renewed, failed, skipped, eligible } = result.results;
+          let message = `Renewal check completed: ${renewed} certificates renewed`;
+          if (failed > 0) message += `, ${failed} failed`;
+          if (skipped > 0) message += `, ${skipped} skipped`;
+          message += ` (${eligible} eligible for renewal)`;
+          
+          this.addNotification('success', message, true);
+        } else {
+          this.addNotification('success', 'SSL renewal check completed successfully', true);
+        }
+        
+        // Refresh both domain list and autorenewal data
+        await this.loadDomains();
+        await this.loadAutorenewalData();
+      } else {
+        this.addNotification('error', `Renewal check failed: ${response.message || 'Unknown error'}`, true);
       }
     } catch (error) {
       console.error('Error running renewal check:', error);
