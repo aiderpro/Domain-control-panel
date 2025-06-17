@@ -116,8 +116,13 @@ class SSLService {
     }
 
     const now = new Date();
-    const daysUntilExpiry = Math.ceil((notAfter - now) / (1000 * 60 * 60 * 24));
-    const isExpired = now > notAfter;
+    
+    // Set both dates to start of day for accurate day calculation
+    const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const expiryDate = new Date(notAfter.getFullYear(), notAfter.getMonth(), notAfter.getDate());
+    
+    const daysUntilExpiry = Math.floor((expiryDate - nowDate) / (1000 * 60 * 60 * 24));
+    const isExpired = nowDate > expiryDate;
     const isExpiringSoon = daysUntilExpiry <= 30 && !isExpired;
 
     // Extract issuer organization

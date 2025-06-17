@@ -1932,8 +1932,12 @@ class SSLManager {
       return 0;
     }
     
-    const diffTime = expiry.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    // Set both dates to start of day to get accurate day difference
+    const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const expiryDate = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate());
+    
+    const diffTime = expiryDate.getTime() - nowDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
     return diffDays; // Allow negative values to show expired certificates
   }

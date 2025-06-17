@@ -147,6 +147,7 @@ Changelog:
 - June 16, 2025: Fixed SSL certificate expiry date parsing using real OpenSSL certificate data
 - June 16, 2025: Corrected days remaining calculation to show accurate countdown from actual certificate dates
 - June 16, 2025: Enhanced SSL status detection to read from both live connections and certificate files
+- June 17, 2025: Fixed SSL expiry days calculation to use Math.floor and date normalization for accurate counting
 ```
 
 ## User Preferences
