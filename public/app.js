@@ -233,6 +233,25 @@ class SSLManager {
     this.socket.on('autorenewal_check_error', (data) => {
       this.addNotification('error', `Renewal check failed: ${data.error}`, true);
     });
+
+    // SSL data refresh listener for updated certificate information
+    this.socket.on('ssl_data_refreshed', (data) => {
+      console.log(`SSL data refreshed for ${data.domain}:`, data.ssl);
+      
+      // Update domain data with fresh SSL information
+      const domainIndex = this.domains.findIndex(d => d.domain === data.domain);
+      if (domainIndex !== -1) {
+        this.domains[domainIndex].ssl = data.ssl;
+        
+        // Re-render domain list and SSL panel if this domain is selected
+        this.renderDomainList();
+        if (this.selectedDomain === data.domain) {
+          this.renderSSLPanel();
+        }
+        
+        this.addNotification('info', `SSL certificate data updated for ${data.domain}`, false);
+      }
+    });
   }
 
   async api(method, url, data = null, options = {}) {
@@ -555,6 +574,31 @@ class SSLManager {
     } catch (error) {
       console.error('SSL renewal error:', error);
       this.addNotification('error', `SSL renewal failed: ${error.message}`, true);
+    }
+  }
+
+  async refreshSSLData(domain) {
+    try {
+      this.addNotification('info', `Refreshing SSL certificate data for ${domain}...`, false);
+      
+      const response = await this.api('POST', `/ssl/refresh/${domain}`);
+      
+      if (response.data.success) {
+        // Update the domain's SSL data immediately
+        const domainIndex = this.domains.findIndex(d => d.domain === domain);
+        if (domainIndex !== -1) {
+          this.domains[domainIndex].ssl = response.data.ssl;
+          this.renderDomainList();
+          if (this.selectedDomain === domain) {
+            this.renderSSLPanel();
+          }
+        }
+        
+        this.addNotification('success', `SSL certificate data refreshed for ${domain}`, true);
+      }
+    } catch (error) {
+      console.error('Error refreshing SSL data:', error);
+      this.addNotification('error', `Failed to refresh SSL data for ${domain}`, true);
     }
   }
 
@@ -1211,6 +1255,9 @@ class SSLManager {
             <i class="fas fa-sync-alt me-1"></i> Renew
           </button>
         `}
+        <button class="btn btn-info btn-sm" onclick="event.stopPropagation(); sslManager.refreshSSLData('${domain.domain}')" title="Refresh SSL Data">
+          <i class="fas fa-refresh me-1"></i> Refresh
+        </button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); sslManager.deleteDomain('${domain.domain}')" title="Delete Domain">
           <i class="fas fa-trash me-1"></i> Delete
         </button>
