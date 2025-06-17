@@ -583,11 +583,11 @@ class SSLManager {
       
       const response = await this.api('POST', `/ssl/refresh/${domain}`);
       
-      if (response.data.success) {
+      if (response.success) {
         // Update the domain's SSL data immediately
         const domainIndex = this.domains.findIndex(d => d.domain === domain);
         if (domainIndex !== -1) {
-          this.domains[domainIndex].ssl = response.data.ssl;
+          this.domains[domainIndex].ssl = response.ssl;
           this.renderDomainList();
           if (this.selectedDomain === domain) {
             this.renderSSLPanel();

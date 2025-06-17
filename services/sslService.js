@@ -11,7 +11,18 @@ class SSLService {
   async checkSSLStatus(domain) {
     console.log(`Checking fresh SSL status for ${domain}...`);
     
-    // Always try live connection first for most up-to-date information
+    // Always try certificate files first (most accurate after renewal)
+    try {
+      const fileSSLData = await this.getSSLFromFiles(domain);
+      if (fileSSLData && fileSSLData.hasSSL) {
+        console.log(`Found certificate file for ${domain}, issued: ${fileSSLData.issuedDate}, expires: ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
+        return fileSSLData;
+      }
+    } catch (error) {
+      console.log(`No certificate files found for ${domain}:`, error.message);
+    }
+
+    // Fallback to live connection
     try {
       const realSSLData = await this.getRealSSLStatus(domain);
       if (realSSLData && realSSLData.hasSSL) {
@@ -22,16 +33,7 @@ class SSLService {
       console.log(`Failed to get live SSL for ${domain}:`, error.message);
     }
     
-    // Fallback to certificate files (these are updated when renewed)
-    try {
-      const fileSSLData = await this.getSSLFromFiles(domain);
-      if (fileSSLData && fileSSLData.hasSSL) {
-        console.log(`Found certificate file for ${domain}, issued: ${fileSSLData.issuedDate}, expires: ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
-        return fileSSLData;
-      }
-    } catch (error) {
-      console.log(`No certificate files found for ${domain}:`, error.message);
-    }
+
     
     // No SSL certificate found
     console.log(`No SSL certificate found for ${domain}`);
@@ -137,7 +139,8 @@ class SSLService {
 
     const now = new Date();
     const timeDiff = notAfter.getTime() - now.getTime();
-    const daysUntilExpiry = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+    // Use floor instead of ceil to match Certbot's calculation method
+    const daysUntilExpiry = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
     const isExpired = daysUntilExpiry <= 0;
     const isExpiringSoon = daysUntilExpiry <= 30 && !isExpired;
 
