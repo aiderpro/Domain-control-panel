@@ -28,24 +28,53 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const AUTH_USER = 'adminssl';
 const AUTH_PASSWORD = 'SSL@dm1n2025!#';
 
-// Session configuration
-app.use(session({
-  secret: 'ssl-manager-secret-key-2025',
+// Session configuration with memory store fallback
+const sessionConfig = {
+  secret: process.env.SESSION_SECRET || 'ssl-manager-secret-key-2025',
   resave: false,
   saveUninitialized: false,
+  rolling: true, // Reset expiration on activity
   cookie: {
-    secure: false, // Set to true in production with HTTPS
+    secure: NODE_ENV === 'production', // Enable secure cookies in production
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: NODE_ENV === 'production' ? 'none' : 'lax' // 'none' for cross-site in production
   }
-}));
+};
+
+// Add session store for production
+if (NODE_ENV === 'production') {
+  // Use file-based session store for production persistence
+  const FileStore = require('session-file-store')(session);
+  sessionConfig.store = new FileStore({
+    path: './sessions',
+    ttl: 86400, // 24 hours
+    retries: 5,
+    logFn: function() {} // Silent logging
+  });
+}
+
+app.use(session(sessionConfig));
 
 // Middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? 
-    ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
-    ["http://localhost:8000", "http://127.0.0.1:8000"],
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = NODE_ENV === 'production' ? 
+      ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
+      ["http://localhost:8000", "http://127.0.0.1:8000"];
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow for now during testing
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.json());
 
@@ -71,11 +100,29 @@ app.use((req, res, next) => {
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
   
+  console.log('Login attempt:', {
+    username: username,
+    passwordLength: password ? password.length : 0,
+    sessionId: req.sessionID,
+    environment: NODE_ENV,
+    origin: req.get('origin'),
+    userAgent: req.get('user-agent')
+  });
+  
   if (username === AUTH_USER && password === AUTH_PASSWORD) {
     req.session.authenticated = true;
     req.session.user = username;
-    res.json({ success: true, message: 'Login successful' });
+    
+    console.log('Login successful for:', username);
+    
+    res.json({ 
+      success: true, 
+      message: 'Login successful',
+      sessionId: req.sessionID,
+      environment: NODE_ENV
+    });
   } else {
+    console.log('Login failed - invalid credentials');
     res.status(401).json({ error: 'Invalid credentials' });
   }
 });
@@ -91,11 +138,51 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/status', (req, res) => {
+  console.log('Auth status check:', {
+    sessionId: req.sessionID,
+    hasSession: !!req.session,
+    authenticated: req.session?.authenticated,
+    user: req.session?.user,
+    environment: NODE_ENV,
+    cookies: req.headers.cookie
+  });
+
   if (req.session && req.session.authenticated) {
-    res.json({ authenticated: true, user: req.session.user });
+    res.json({ 
+      authenticated: true, 
+      user: req.session.user,
+      sessionId: req.sessionID,
+      environment: NODE_ENV
+    });
   } else {
-    res.json({ authenticated: false });
+    res.json({ 
+      authenticated: false,
+      sessionId: req.sessionID,
+      environment: NODE_ENV,
+      hasSession: !!req.session
+    });
   }
+});
+
+// Diagnostic endpoint for troubleshooting
+app.get('/api/debug/session', (req, res) => {
+  res.json({
+    environment: NODE_ENV,
+    sessionId: req.sessionID,
+    hasSession: !!req.session,
+    sessionData: req.session ? {
+      authenticated: req.session.authenticated,
+      user: req.session.user,
+      cookie: req.session.cookie
+    } : null,
+    headers: {
+      origin: req.get('origin'),
+      userAgent: req.get('user-agent'),
+      cookie: req.get('cookie'),
+      host: req.get('host')
+    },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Protected API routes

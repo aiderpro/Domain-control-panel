@@ -124,6 +124,8 @@
             loadingDiv.style.display = 'block';
             
             try {
+                console.log('Attempting login to:', `${API_BASE_URL}/api/auth/login`);
+                
                 const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
                     method: 'POST',
                     headers: {
@@ -133,17 +135,29 @@
                     body: JSON.stringify({ username, password })
                 });
                 
+                console.log('Login response status:', response.status);
+                console.log('Login response headers:', [...response.headers.entries()]);
+                
                 const data = await response.json();
+                console.log('Login response data:', data);
                 
                 if (response.ok) {
                     // Login successful, redirect to main app
+                    console.log('Login successful, redirecting...');
                     window.location.href = '/';
                 } else {
-                    throw new Error(data.error || 'Login failed');
+                    throw new Error(data.error || `Login failed (${response.status})`);
                 }
             } catch (error) {
-                errorDiv.textContent = error.message;
+                console.error('Login error:', error);
+                errorDiv.textContent = `${error.message}. Check browser console for details.`;
                 errorDiv.style.display = 'block';
+                
+                // Show diagnostic info in console
+                fetch(`${API_BASE_URL}/api/debug/session`, { credentials: 'include' })
+                    .then(r => r.json())
+                    .then(debug => console.log('Session debug info:', debug))
+                    .catch(e => console.log('Debug fetch failed:', e));
             } finally {
                 loadingDiv.style.display = 'none';
             }
