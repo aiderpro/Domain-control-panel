@@ -961,6 +961,9 @@ class SSLManager {
                 <button class="btn btn-outline-secondary btn-sm" onclick="sslManager.checkSSLQueue()">
                   <i class="fas fa-tasks me-1"></i> Queue Status
                 </button>
+                <button class="btn btn-outline-info btn-sm" onclick="sslManager.clearSSLCache()">
+                  <i class="fas fa-database me-1"></i> Clear Cache
+                </button>
                 <button class="btn btn-outline-warning btn-sm" onclick="sslManager.cleanupCertbot()">
                   <i class="fas fa-broom me-1"></i> Cleanup
                 </button>
