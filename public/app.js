@@ -41,7 +41,8 @@ class SSLManager {
       console.log('Using local API server:', localApiUrl);
       return localApiUrl;
     } else {
-      const productionApiUrl = 'https://sitedev.eezix.com';
+      // Use current domain for production
+      const productionApiUrl = window.location.origin;
       console.log('Using production API server:', productionApiUrl);
       return productionApiUrl;
     }

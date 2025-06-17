@@ -155,6 +155,9 @@ Changelog:
 - June 17, 2025: Implemented automatic SSL autorenewal enablement - SSL autorenewal is now enabled by default for all newly installed certificates
 - June 17, 2025: Enhanced SSL renewal process to automatically handle both domain.com and www.domain.com together in single renewal operation
 - June 17, 2025: Updated both nginx and DNS SSL installation methods to include www subdomain in certificate requests by default
+- June 17, 2025: Fixed production login issues - Updated session configuration for HTTPS, added file-based session storage, enhanced CORS handling
+- June 17, 2025: Migrated application from sitedev.eezix.com to cpanel.webeezix.in - Updated frontend API configuration and server CORS settings
+- June 17, 2025: Created domain migration tooling and comprehensive troubleshooting documentation for production deployments
 ```
 
 ## User Preferences

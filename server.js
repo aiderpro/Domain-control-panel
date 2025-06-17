@@ -16,8 +16,9 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production' ? 
-      ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : "*",
-    methods: ["GET", "POST"]
+      ["https://cpanel.webeezix.in", "http://cpanel.webeezix.in", "https://sitedev.eezix.com", "http://sitedev.eezix.com"] : "*",
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -63,7 +64,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     const allowedOrigins = NODE_ENV === 'production' ? 
-      ["https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
+      ["https://cpanel.webeezix.in", "http://cpanel.webeezix.in", "https://sitedev.eezix.com", "http://sitedev.eezix.com"] : 
       ["http://localhost:8000", "http://127.0.0.1:8000"];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
