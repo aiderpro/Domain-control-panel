@@ -354,51 +354,49 @@ async function createNginxConfigDirect(domain) {
   const configPath = `/etc/nginx/sites-available/${domain}`;
   const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
 
-  // Create the nginx configuration content
+  // Create the nginx configuration content with exact format specified by user
   const nginxConfig = `server {
-    listen 80;
-    server_name ${domain};
-
-    root /var/www/html;
-    index index.html index.htm index.php;
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss;
-
+    server_name ${domain} www.${domain};
+    root /data/site/public;
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+    index index.php index.html index.htm;
+    charset utf-8;
     location / {
-        try_files $uri $uri/ =404;
+        proxy_read_timeout 60;
+        proxy_connect_timeout 60;
+        proxy_redirect off;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host $host ;
+        proxy_set_header X-Real-IP $remote_addr ;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for ;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://localhost:3000;
     }
-
-    # PHP processing (if needed)
+    location @rules {
+        rewrite ^(.*)$ $1.php last;
+    }
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+    }
+    location = /robots.txt {
+        access_log off;
+        log_not_found off;
+    }
+    error_page 404 /index.php;
     location ~ \\.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
+        fastcgi_pass unix:/var/run/php-fpm/www.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
     }
-
-    # Static file caching
-    location ~* \\.(jpg|jpeg|png|gif|ico|css|js|pdf|txt)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Deny access to hidden files
-    location ~ /\\. {
+    location ~ /\\.(?!well-known).* {
         deny all;
     }
-
-    # Log files
-    access_log /var/log/nginx/${domain}_access.log;
-    error_log /var/log/nginx/${domain}_error.log;
 }`;
 
   try {
