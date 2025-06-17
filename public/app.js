@@ -1932,12 +1932,13 @@ class SSLManager {
       return 0;
     }
     
-    // Set both dates to start of day to get accurate day difference
+    // Set both dates to start of day for accurate calculation
     const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const expiryDate = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate());
     
+    // Certbot-style calculation: count full days remaining excluding today
     const diffTime = expiryDate.getTime() - nowDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) - 1;
     
     return diffDays; // Allow negative values to show expired certificates
   }
