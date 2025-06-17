@@ -138,35 +138,39 @@ router.post('/renew', async (req, res) => {
 
     const result = await certbotService.renewCertificate(domain, req.io);
 
-    // Immediately refresh SSL data after renewal
+    // Force immediate SSL data refresh after renewal
     setTimeout(async () => {
       try {
         const sslService = require('../services/sslService');
         
-        // Wait a moment for file system to update
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for certificate files to be written
+        await new Promise(resolve => setTimeout(resolve, 5000));
         
+        // Clear any cached data and get fresh certificate information
         const freshSSLData = await sslService.checkSSLStatus(domain);
+        
         console.log(`Post-renewal SSL refresh for ${domain}:`, {
           expires: freshSSLData?.expiryDate,
           daysRemaining: freshSSLData?.daysUntilExpiry,
           issued: freshSSLData?.issuedDate,
-          hasSSL: freshSSLData?.hasSSL
+          hasSSL: freshSSLData?.hasSSL,
+          source: freshSSLData?.source
         });
         
         // Emit updated SSL data to all connected clients
         req.io.emit('ssl_data_refreshed', {
           domain,
-          ssl: freshSSLData
+          ssl: freshSSLData,
+          timestamp: new Date().toISOString()
         });
         
-        // Also emit a general refresh trigger
-        req.io.emit('domain_refresh_needed');
+        // Force complete domain list refresh
+        req.io.emit('force_domain_reload');
         
       } catch (error) {
         console.log(`Failed to refresh SSL data after renewal:`, error.message);
       }
-    }, 3000);
+    }, 8000); // Longer delay to ensure certificate files are fully written
 
     res.json({
       success: true,

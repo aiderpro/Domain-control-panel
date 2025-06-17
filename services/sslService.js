@@ -176,10 +176,13 @@ class SSLService {
     }
 
     const now = new Date();
-    const timeDiff = notAfter.getTime() - now.getTime();
-    // Use floor instead of ceil to match Certbot's calculation method
+    now.setHours(0, 0, 0, 0); // Reset to start of day for accurate calculation
+    const expiryDateOnly = new Date(notAfter);
+    expiryDateOnly.setHours(0, 0, 0, 0); // Reset to start of day
+    
+    const timeDiff = expiryDateOnly.getTime() - now.getTime();
     const daysUntilExpiry = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
-    const isExpired = daysUntilExpiry <= 0;
+    const isExpired = daysUntilExpiry < 0;
     const isExpiringSoon = daysUntilExpiry <= 30 && !isExpired;
 
     console.log(`SSL calculation for ${domain}: expires ${notAfter.toISOString()}, ${daysUntilExpiry} days remaining`);
