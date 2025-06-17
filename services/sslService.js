@@ -7,27 +7,29 @@ const execAsync = promisify(exec);
 class SSLService {
   constructor() {
     this.sslCache = new Map(); // Cache SSL results to prevent fluctuations
-    this.cacheTimeout = 300000; // 5 minutes cache
+    this.cacheTimeout = 60000; // 1 minute cache for more frequent updates
+    this.lastCacheClear = Date.now();
   }
 
   /**
-   * Check SSL certificate status using cached results to prevent fluctuations
+   * Check SSL certificate status with forced refresh option for accurate statistics
    */
-  async checkSSLStatus(domain) {
-    // Check cache first to prevent fluctuations
-    const cached = this.sslCache.get(domain);
-    if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
-      console.log(`Using cached SSL status for ${domain}`);
-      return cached.data;
+  async checkSSLStatus(domain, forceRefresh = false) {
+    // Force refresh bypasses cache for accurate real-time data
+    if (!forceRefresh) {
+      const cached = this.sslCache.get(domain);
+      if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
+        return cached.data;
+      }
     }
 
-    console.log(`Checking AUTHENTIC SSL status for ${domain}...`);
+    console.log(`Checking SSL status for ${domain}${forceRefresh ? ' (forced refresh)' : ''}...`);
     
-    // Method 1: Try certificate files first (most reliable for accurate statistics)
+    // Method 1: Check certificate files first (most accurate for installed certificates)
     try {
       const fileSSLData = await this.getSSLFromFiles(domain);
       if (fileSSLData && fileSSLData.hasSSL) {
-        console.log(`AUTHENTIC file SSL found for ${domain}: expires ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
+        console.log(`File SSL found for ${domain}: expires ${fileSSLData.expiryDate}, ${fileSSLData.daysUntilExpiry} days remaining`);
         this.cacheSSLResult(domain, fileSSLData);
         return fileSSLData;
       }
@@ -35,18 +37,19 @@ class SSLService {
       console.log(`File SSL check failed for ${domain}:`, error.message);
     }
 
-    // Method 1.5: Check if certificate exists for domain without www prefix
+    // Method 2: Check for domain without www prefix (common SSL setup)
     if (domain.startsWith('www.')) {
       try {
-        const noDomainData = await this.getSSLFromFiles(domain.replace('www.', ''));
+        const baseDomain = domain.replace('www.', '');
+        const noDomainData = await this.getSSLFromFiles(baseDomain);
         if (noDomainData && noDomainData.hasSSL) {
-          console.log(`AUTHENTIC file SSL found for ${domain} via non-www: expires ${noDomainData.expiryDate}, ${noDomainData.daysUntilExpiry} days remaining`);
-          const result = { ...noDomainData, domain }; // Return with original domain
+          console.log(`File SSL found for ${domain} via base domain ${baseDomain}`);
+          const result = { ...noDomainData, domain };
           this.cacheSSLResult(domain, result);
           return result;
         }
       } catch (error) {
-        console.log(`Non-www file SSL check failed for ${domain}:`, error.message);
+        console.log(`Base domain SSL check failed for ${domain}:`, error.message);
       }
     }
 
@@ -119,10 +122,152 @@ class SSLService {
   }
 
   /**
-   * Clear all SSL cache
+   * Clear all SSL cache for fresh statistics
    */
   clearAllSSLCache() {
+    console.log('Clearing all SSL cache for accurate statistics');
     this.sslCache.clear();
+    this.lastCacheClear = Date.now();
+  }
+
+  /**
+   * Enhanced certificate detection checking multiple paths and methods
+   */
+  async checkMultipleCertPaths(domain) {
+    console.log(`Enhanced SSL detection for ${domain}...`);
+    
+    // Method 1: Standard Let's Encrypt paths
+    const certPaths = [
+      `/etc/letsencrypt/live/${domain}/fullchain.pem`,
+      `/etc/letsencrypt/live/${domain}/cert.pem`,
+      `/etc/letsencrypt/archive/${domain}/fullchain1.pem`,
+      `/etc/ssl/certs/${domain}.crt`,
+      `/etc/ssl/certs/${domain}.pem`
+    ];
+
+    for (const certPath of certPaths) {
+      try {
+        const certData = await this.getSSLFromCertPath(certPath, domain);
+        if (certData && certData.hasSSL) {
+          console.log(`Found SSL certificate for ${domain} at ${certPath}`);
+          return certData;
+        }
+      } catch (error) {
+        // Continue checking other paths
+      }
+    }
+
+    // Method 2: Check www variant certificates
+    if (!domain.startsWith('www.')) {
+      const wwwDomain = `www.${domain}`;
+      for (const certPath of certPaths) {
+        const wwwPath = certPath.replace(domain, wwwDomain);
+        try {
+          const certData = await this.getSSLFromCertPath(wwwPath, domain);
+          if (certData && certData.hasSSL) {
+            console.log(`Found SSL certificate for ${domain} via www variant at ${wwwPath}`);
+            return certData;
+          }
+        } catch (error) {
+          // Continue checking
+        }
+      }
+    }
+
+    // Method 3: Certbot certificate list check
+    try {
+      const certbotCerts = await this.getCertbotCertificates();
+      const domainCert = certbotCerts.find(cert => 
+        cert.domains && (cert.domains.includes(domain) || cert.domains.includes(`www.${domain}`))
+      );
+      
+      if (domainCert && domainCert.path) {
+        const certData = await this.getSSLFromCertPath(domainCert.path, domain);
+        if (certData && certData.hasSSL) {
+          console.log(`Found SSL certificate for ${domain} via certbot list`);
+          return certData;
+        }
+      }
+    } catch (error) {
+      console.log(`Certbot list check failed for ${domain}:`, error.message);
+    }
+
+    return { hasSSL: false, domain };
+  }
+
+  /**
+   * Get certificate data from specific file path
+   */
+  async getSSLFromCertPath(certPath, domain) {
+    try {
+      const fs = require('fs').promises;
+      await fs.access(certPath);
+      
+      const { stdout } = await execAsync(`openssl x509 -in "${certPath}" -text -noout`);
+      
+      // Extract expiry date
+      const expiryMatch = stdout.match(/Not After : (.+)/);
+      if (!expiryMatch) {
+        return { hasSSL: false, domain };
+      }
+
+      const expiryDate = new Date(expiryMatch[1]);
+      const now = new Date();
+      const daysUntilExpiry = Math.floor((expiryDate - now) / (1000 * 60 * 60 * 24));
+
+      return {
+        hasSSL: true,
+        domain,
+        expiryDate: expiryDate.toISOString(),
+        daysUntilExpiry,
+        isExpired: daysUntilExpiry <= 0,
+        isExpiringSoon: daysUntilExpiry <= 30,
+        certificatePath: certPath,
+        issuer: this.extractIssuer(stdout),
+        validFrom: this.extractValidFrom(stdout)
+      };
+    } catch (error) {
+      return { hasSSL: false, domain, error: error.message };
+    }
+  }
+
+  /**
+   * Get all certificates from certbot
+   */
+  async getCertbotCertificates() {
+    try {
+      const { stdout } = await execAsync('certbot certificates 2>/dev/null || echo ""');
+      return this.parseCertbotList(stdout);
+    } catch (error) {
+      console.log('Failed to get certbot certificates:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Parse certbot certificate list output
+   */
+  parseCertbotList(output) {
+    const certificates = [];
+    const certBlocks = output.split('- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -');
+    
+    for (const block of certBlocks) {
+      if (block.trim()) {
+        const nameMatch = block.match(/Certificate Name: (.+)/);
+        const domainsMatch = block.match(/Domains: (.+)/);
+        const pathMatch = block.match(/Certificate Path: (.+)/);
+        
+        if (nameMatch && domainsMatch && pathMatch) {
+          certificates.push({
+            name: nameMatch[1].trim(),
+            domains: domainsMatch[1].split(' ').map(d => d.trim()),
+            path: pathMatch[1].trim()
+          });
+        }
+      }
+    }
+    
+    return certificates;
   }
 
   /**
