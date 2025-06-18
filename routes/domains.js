@@ -461,40 +461,81 @@ function reloadNginx() {
 
 // Delete domain configuration and SSL certificates
 async function deleteDomainAndSSL(domain) {
-  const configPath = `/etc/nginx/sites-available/${domain}.conf`;
-  const enabledPath = `/etc/nginx/sites-enabled/${domain}.conf`;
-  const sslCertPath = `/etc/letsencrypt/live/${domain}`;
-  const sslRenewalPath = `/etc/letsencrypt/renewal/${domain}.conf`;
-
   const deletedFiles = [];
   const errors = [];
 
+  console.log(`Starting deletion process for domain: ${domain}`);
+
   try {
-    // 1. Remove nginx sites-enabled symlink
-    try {
-      await fs.access(enabledPath);
-      await fs.unlink(enabledPath);
-      deletedFiles.push(enabledPath);
-      console.log(`✓ Removed enabled site: ${enabledPath}`);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        errors.push(`Failed to remove enabled site: ${error.message}`);
+    // Find actual nginx configuration files (check both .conf and no extension)
+    const possibleConfigPaths = [
+      `/etc/nginx/sites-available/${domain}.conf`,
+      `/etc/nginx/sites-available/${domain}`
+    ];
+    
+    const possibleEnabledPaths = [
+      `/etc/nginx/sites-enabled/${domain}.conf`,
+      `/etc/nginx/sites-enabled/${domain}`
+    ];
+
+    let actualConfigPath = null;
+    let actualEnabledPath = null;
+
+    // Find which config file actually exists
+    for (const path of possibleConfigPaths) {
+      try {
+        await fs.access(path);
+        actualConfigPath = path;
+        console.log(`Found config file: ${path}`);
+        break;
+      } catch (error) {
+        console.log(`Config file not found: ${path}`);
       }
     }
 
-    // 2. Remove nginx sites-available configuration
-    try {
-      await fs.access(configPath);
-      await fs.unlink(configPath);
-      deletedFiles.push(configPath);
-      console.log(`✓ Removed configuration file: ${configPath}`);
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
+    // Find which enabled file actually exists
+    for (const path of possibleEnabledPaths) {
+      try {
+        await fs.access(path);
+        actualEnabledPath = path;
+        console.log(`Found enabled file: ${path}`);
+        break;
+      } catch (error) {
+        console.log(`Enabled file not found: ${path}`);
+      }
+    }
+
+    // 1. Remove nginx sites-enabled symlink if found
+    if (actualEnabledPath) {
+      try {
+        await fs.unlink(actualEnabledPath);
+        deletedFiles.push(actualEnabledPath);
+        console.log(`✓ Removed enabled site: ${actualEnabledPath}`);
+      } catch (error) {
+        errors.push(`Failed to remove enabled site: ${error.message}`);
+      }
+    } else {
+      console.log(`No enabled site file found for ${domain}`);
+    }
+
+    // 2. Remove nginx sites-available configuration if found
+    if (actualConfigPath) {
+      try {
+        await fs.unlink(actualConfigPath);
+        deletedFiles.push(actualConfigPath);
+        console.log(`✓ Removed configuration file: ${actualConfigPath}`);
+      } catch (error) {
         errors.push(`Failed to remove config file: ${error.message}`);
       }
+    } else {
+      console.log(`No config file found for ${domain}`);
+      errors.push(`No nginx configuration file found for ${domain}`);
     }
 
     // 3. Remove SSL certificate using certbot (safer than manual deletion)
+    const sslCertPath = `/etc/letsencrypt/live/${domain}`;
+    const sslRenewalPath = `/etc/letsencrypt/renewal/${domain}.conf`;
+    
     try {
       await removeCertbotCertificate(domain);
       deletedFiles.push(sslCertPath);
@@ -513,14 +554,26 @@ async function deleteDomainAndSSL(domain) {
     await reloadNginx();
     console.log(`✓ Nginx reloaded successfully after deletion`);
 
-    if (errors.length > 0) {
-      throw new Error(`Partial deletion completed with errors: ${errors.join(', ')}`);
+    // Determine success status and message
+    const hasErrors = errors.length > 0;
+    const hasDeleted = deletedFiles.length > 0;
+    
+    let message;
+    if (!hasDeleted && hasErrors) {
+      message = `No files found to delete for ${domain}. ${errors.join(', ')}`;
+    } else if (hasDeleted && hasErrors) {
+      message = `Partially deleted ${domain}. Deleted: ${deletedFiles.length} files. Errors: ${errors.join(', ')}`;
+    } else if (hasDeleted && !hasErrors) {
+      message = `Successfully deleted ${domain} and ${deletedFiles.length} associated files`;
+    } else {
+      message = `No files found for ${domain} - may already be deleted`;
     }
 
     return {
-      success: true,
+      success: !hasErrors || hasDeleted,
       deletedFiles: deletedFiles,
-      message: `Successfully deleted domain ${domain} and associated files`
+      errors: errors,
+      message: message
     };
 
   } catch (error) {

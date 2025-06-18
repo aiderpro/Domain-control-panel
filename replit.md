@@ -158,6 +158,9 @@ Changelog:
 - June 17, 2025: Fixed production login issues - Updated session configuration for HTTPS, added file-based session storage, enhanced CORS handling
 - June 17, 2025: Migrated application from sitedev.eezix.com to cpanel.webeezix.in - Updated frontend API configuration and server CORS settings
 - June 17, 2025: Created domain migration tooling and comprehensive troubleshooting documentation for production deployments
+- June 18, 2025: Fixed nginx configuration file naming convention support - Updated all services to handle both .conf and non-.conf file extensions
+- June 18, 2025: Enhanced domain deletion function to properly detect and remove files regardless of naming convention (domain.com vs domain.com.conf)
+- June 18, 2025: Improved error reporting in domain deletion to show exactly which files were found and deleted
 ```
 
 ## User Preferences
