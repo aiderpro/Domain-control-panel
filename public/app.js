@@ -123,40 +123,71 @@ class SSLManager {
       upgrade: true,
       rememberUpgrade: true,
       timeout: 20000,
-      forceNew: false
+      forceNew: false,
+      withCredentials: true,
+      autoConnect: true,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      maxReconnectionAttempts: 5
     };
     
     // Use appropriate server based on environment
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://sitedev.eezix.com';
+    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : window.location.origin;
     
+    console.log('Initializing Socket.IO connection to:', socketUrl);
     this.socket = io(socketUrl, socketOptions);
     
     this.socket.on('connect', () => {
-      console.log('Connected to server');
+      console.log('Socket.IO connected successfully');
       this.connectionStatus = 'connected';
       this.updateConnectionStatus();
+      this.addNotification('success', 'Connected to server - real-time updates enabled', false);
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from server');
+    this.socket.on('disconnect', (reason) => {
+      console.log('Socket.IO disconnected:', reason);
       this.connectionStatus = 'disconnected';
       this.updateConnectionStatus();
+      this.addNotification('warning', 'Disconnected from server - retrying connection...', false);
+    });
+
+    this.socket.on('reconnect', (attemptNumber) => {
+      console.log('Socket.IO reconnected after', attemptNumber, 'attempts');
+      this.connectionStatus = 'connected';
+      this.updateConnectionStatus();
+      this.addNotification('success', 'Reconnected to server', false);
+    });
+
+    this.socket.on('reconnect_error', (error) => {
+      console.error('Socket.IO reconnection failed:', error);
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('Connection error:', error);
+      console.error('Socket.IO connection error:', error);
       console.error('Error details:', {
         message: error.message,
         type: error.type,
         transport: error.transport,
-        description: error.description
+        description: error.description,
+        url: socketUrl,
+        options: socketOptions
       });
       this.connectionStatus = 'error';
       this.updateConnectionStatus();
       
-      // Add user-friendly error notification
-      this.addNotification('error', `Connection failed: ${error.message || 'Server unreachable'}. Check server status.`, true);
+      // Add user-friendly error notification with specific guidance
+      let errorMsg = 'Connection failed: ';
+      if (error.message.includes('xhr poll error')) {
+        errorMsg += 'Server communication error. Check if the server is running and accessible.';
+      } else if (error.message.includes('CORS')) {
+        errorMsg += 'Cross-origin request blocked. Server CORS configuration may need updating.';
+      } else {
+        errorMsg += error.message || 'Server unreachable';
+      }
+      
+      this.addNotification('error', errorMsg, true);
     });
 
     // SSL operation listeners

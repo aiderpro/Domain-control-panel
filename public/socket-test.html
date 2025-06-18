@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Connection Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Socket.IO Connection Test - cpanel.webeezix.in</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <strong>Connection Status:</strong> 
+                            <span id="status" class="badge bg-warning">Testing...</span>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Server URL:</strong> 
+                            <span id="serverUrl"></span>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Socket ID:</strong> 
+                            <span id="socketId">Not connected</span>
+                        </div>
+                        <div class="mb-3">
+                            <button id="reconnectBtn" class="btn btn-primary" onclick="reconnect()">Reconnect</button>
+                            <button id="testBtn" class="btn btn-success" onclick="testConnection()">Test Connection</button>
+                        </div>
+                        <div class="mt-4">
+                            <h5>Connection Log:</h5>
+                            <div id="log" class="border p-3" style="height: 300px; overflow-y: auto; background-color: #f8f9fa;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        const logContainer = document.getElementById('log');
+        const statusElement = document.getElementById('status');
+        const socketIdElement = document.getElementById('socketId');
+        const serverUrlElement = document.getElementById('serverUrl');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `text-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'dark'}`;
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateStatus(status, type) {
+            statusElement.textContent = status;
+            statusElement.className = `badge bg-${type}`;
+        }
+
+        function initSocket() {
+            const serverUrl = window.location.origin;
+            serverUrlElement.textContent = serverUrl;
+            
+            log(`Initializing Socket.IO connection to: ${serverUrl}`);
+            
+            const socketOptions = {
+                transports: ['polling', 'websocket'],
+                upgrade: true,
+                withCredentials: true,
+                timeout: 10000,
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 3
+            };
+
+            socket = io(serverUrl, socketOptions);
+
+            socket.on('connect', () => {
+                log('Connected successfully!', 'success');
+                updateStatus('Connected', 'success');
+                socketIdElement.textContent = socket.id;
+            });
+
+            socket.on('disconnect', (reason) => {
+                log(`Disconnected: ${reason}`, 'warning');
+                updateStatus('Disconnected', 'warning');
+                socketIdElement.textContent = 'Not connected';
+            });
+
+            socket.on('connect_error', (error) => {
+                log(`Connection error: ${error.message}`, 'error');
+                log(`Error type: ${error.type || 'unknown'}`, 'error');
+                log(`Transport: ${error.transport || 'unknown'}`, 'error');
+                updateStatus('Connection Failed', 'danger');
+                socketIdElement.textContent = 'Connection failed';
+            });
+
+            socket.on('reconnect', (attemptNumber) => {
+                log(`Reconnected after ${attemptNumber} attempts`, 'success');
+                updateStatus('Reconnected', 'success');
+                socketIdElement.textContent = socket.id;
+            });
+
+            socket.on('reconnect_error', (error) => {
+                log(`Reconnection failed: ${error.message}`, 'error');
+            });
+        }
+
+        function reconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket.connect();
+                log('Manual reconnection initiated');
+            }
+        }
+
+        function testConnection() {
+            if (socket && socket.connected) {
+                log('Connection test: Socket is connected and ready', 'success');
+                // Test a simple emit
+                socket.emit('test_connection', { timestamp: Date.now() });
+                log('Sent test message to server', 'info');
+            } else {
+                log('Connection test failed: Socket not connected', 'error');
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Starting Socket.IO connection test...');
+            initSocket();
+        });
+    </script>
+</body>
+</html>

@@ -205,10 +205,24 @@ app.get('*', (req, res) => {
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  console.log('Client connected:', socket.id, 'from:', socket.handshake.address);
   
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+  // Handle test connection events
+  socket.on('test_connection', (data) => {
+    console.log('Test connection received from:', socket.id, data);
+    socket.emit('test_response', { 
+      message: 'Server received test message', 
+      timestamp: Date.now(),
+      serverTime: new Date().toISOString()
+    });
+  });
+  
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', socket.id, 'reason:', reason);
+  });
+  
+  socket.on('error', (error) => {
+    console.error('Socket error:', socket.id, error);
   });
 });
 
