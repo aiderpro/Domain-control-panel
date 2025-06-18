@@ -635,13 +635,15 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Serve simple domain manager interface
+// Serve simple domain manager interface at root
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'simple-domains.html'));
 });
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve other static files but exclude index.html at root
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false  // Prevent automatic serving of index.html
+}));
 
 // Start server
 const PORT = process.env.PORT || 3001;
