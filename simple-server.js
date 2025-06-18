@@ -131,14 +131,65 @@ function installSSL(domain, email) {
 
 function removeSSL(domain) {
   return new Promise((resolve, reject) => {
-    exec(`certbot delete --cert-name ${domain} --non-interactive`, (error) => {
-      if (error) {
-        exec(`certbot delete --cert-name www.${domain} --non-interactive`, (altError) => {
-          resolve(); // Continue even if SSL removal fails
-        });
-      } else {
-        resolve();
+    console.log(`Looking for SSL certificates for ${domain}...`);
+    
+    // List certificates to find the correct certificate name
+    exec('certbot certificates', (listError, listStdout, listStderr) => {
+      if (listError) {
+        console.warn(`Could not list certificates: ${listStderr || listError.message}`);
+        resolve(); // Continue even if we can't list certificates
+        return;
       }
+      
+      const certificateNames = [];
+      const lines = listStdout.split('\n');
+      let currentCertName = null;
+      
+      for (const line of lines) {
+        const certNameMatch = line.match(/Certificate Name: (.+)/);
+        const domainsMatch = line.match(/Domains: (.+)/);
+        
+        if (certNameMatch) {
+          currentCertName = certNameMatch[1].trim();
+        }
+        
+        if (domainsMatch && currentCertName) {
+          const certDomains = domainsMatch[1].split(' ').map(d => d.trim());
+          if (certDomains.includes(domain) || certDomains.includes(`www.${domain}`)) {
+            certificateNames.push(currentCertName);
+          }
+          currentCertName = null;
+        }
+      }
+      
+      if (certificateNames.length === 0) {
+        console.log(`No SSL certificates found for ${domain}`);
+        resolve();
+        return;
+      }
+      
+      // Remove all found certificates
+      let processed = 0;
+      const total = certificateNames.length;
+      
+      certificateNames.forEach(certName => {
+        const command = `certbot delete --cert-name "${certName}" --non-interactive`;
+        console.log(`Removing certificate: ${certName}`);
+        
+        exec(command, (error, stdout, stderr) => {
+          processed++;
+          
+          if (error) {
+            console.error(`Failed to remove certificate ${certName}: ${stderr || error.message}`);
+          } else {
+            console.log(`Successfully removed certificate: ${certName}`);
+          }
+          
+          if (processed === total) {
+            resolve();
+          }
+        });
+      });
     });
   });
 }
@@ -210,25 +261,85 @@ app.delete('/api/domains/:domain', auth, async (req, res) => {
     const { domain } = req.params;
     const { removeSSL: shouldRemoveSSL } = req.query;
     
+    console.log(`Starting domain deletion for ${domain}...`);
+    let deletionSteps = [];
+    
+    // Step 1: Remove SSL certificate if requested
     if (shouldRemoveSSL === 'true') {
-      await removeSSL(domain);
+      console.log(`Removing SSL certificate for ${domain}...`);
+      try {
+        await removeSSL(domain);
+        deletionSteps.push(`SSL certificate removed for ${domain}`);
+      } catch (sslError) {
+        deletionSteps.push(`SSL removal failed: ${sslError.message}`);
+        console.warn(`SSL removal failed: ${sslError.message}`);
+      }
     }
     
-    // Remove files
+    // Step 2: Remove symbolic link
+    const symlinkPath = `/etc/nginx/sites-enabled/${domain}`;
     try {
-      await fs.unlink(`/etc/nginx/sites-enabled/${domain}`);
-    } catch {}
+      await fs.access(symlinkPath);
+      await fs.unlink(symlinkPath);
+      deletionSteps.push(`Symbolic link removed: ${symlinkPath}`);
+      console.log(`Symbolic link removed: ${symlinkPath}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        deletionSteps.push(`Warning: Could not remove symbolic link: ${error.message}`);
+      } else {
+        deletionSteps.push(`Symbolic link not found: ${symlinkPath}`);
+      }
+    }
     
+    // Step 3: Remove configuration file
+    const configPath = `/etc/nginx/sites-available/${domain}`;
     try {
-      await fs.unlink(`/etc/nginx/sites-available/${domain}`);
-    } catch {}
+      await fs.access(configPath);
+      await fs.unlink(configPath);
+      deletionSteps.push(`Configuration file removed: ${configPath}`);
+      console.log(`Configuration file removed: ${configPath}`);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        deletionSteps.push(`Error removing configuration file: ${error.message}`);
+        throw error;
+      } else {
+        deletionSteps.push(`Configuration file not found: ${configPath}`);
+      }
+    }
     
+    // Step 4: Test and reload nginx
     await testNginx();
-    await reloadNginx();
+    deletionSteps.push(`Nginx configuration test: PASSED`);
     
-    res.json({ success: true, domain });
+    await reloadNginx();
+    deletionSteps.push(`Nginx reload: SUCCESS`);
+    
+    // Step 5: Verify deletion
+    try {
+      await fs.access(configPath);
+      throw new Error(`Configuration file still exists: ${configPath}`);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        deletionSteps.push(`Verification: Files successfully removed`);
+      } else {
+        throw error;
+      }
+    }
+    
+    console.log(`Domain deletion completed for ${domain}`);
+    
+    res.json({ 
+      success: true, 
+      domain,
+      deletionSteps,
+      filesRemoved: {
+        configFile: configPath,
+        symbolicLink: symlinkPath
+      }
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(`Domain deletion failed for ${domain}:`, error.message);
+    res.status(500).json({ error: error.message, domain });
   }
 });
 
