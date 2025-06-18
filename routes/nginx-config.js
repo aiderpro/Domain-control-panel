@@ -53,7 +53,8 @@ class NginxConfigManager {
         return false; // Always allow in development
       }
       
-      const configFile = path.join(this.sitesAvailable, domain);
+      // Check for .conf file extension
+      const configFile = path.join(this.sitesAvailable, `${domain}.conf`);
       await fs.access(configFile);
       return true;
     } catch {
@@ -118,12 +119,12 @@ class NginxConfigManager {
     if (process.env.NODE_ENV !== 'production') {
       return { 
         success: true, 
-        path: `./simulated/sites-available/${domain}`,
+        path: `./simulated/sites-available/${domain}.conf`,
         simulated: true 
       };
     }
     
-    const configPath = path.join(this.sitesAvailable, domain);
+    const configPath = path.join(this.sitesAvailable, `${domain}.conf`);
     const config = this.generateNginxConfig(domain);
     
     try {
@@ -143,13 +144,13 @@ class NginxConfigManager {
     if (process.env.NODE_ENV !== 'production') {
       return { 
         success: true, 
-        path: `./simulated/sites-enabled/${domain}`,
+        path: `./simulated/sites-enabled/${domain}.conf`,
         simulated: true 
       };
     }
     
-    const sourcePath = path.join(this.sitesAvailable, domain);
-    const linkPath = path.join(this.sitesEnabled, domain);
+    const sourcePath = path.join(this.sitesAvailable, `${domain}.conf`);
+    const linkPath = path.join(this.sitesEnabled, `${domain}.conf`);
     
     try {
       // Check if link already exists

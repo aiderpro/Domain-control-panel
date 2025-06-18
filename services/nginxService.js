@@ -163,9 +163,12 @@ class NginxService {
         enabled = false;
       }
 
+      // Extract domain name from filename (remove .conf extension)
+      const domainFromFilename = filename.replace(/\.conf$/, '');
+      
       return {
         filename,
-        domain: config.serverName || filename,
+        domain: config.serverName || domainFromFilename,
         serverNames: config.serverNames || [],
         documentRoot: config.documentRoot,
         sslCertificate: config.sslCertificate,
@@ -188,6 +191,7 @@ class NginxService {
     const domainConfig = domains.find(d => 
       d.domain === domain || 
       d.filename === domain ||
+      d.filename === `${domain}.conf` ||
       (d.serverNames && d.serverNames.includes(domain))
     );
 

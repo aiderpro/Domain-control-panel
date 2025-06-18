@@ -461,8 +461,8 @@ function reloadNginx() {
 
 // Delete domain configuration and SSL certificates
 async function deleteDomainAndSSL(domain) {
-  const configPath = `/etc/nginx/sites-available/${domain}`;
-  const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
+  const configPath = `/etc/nginx/sites-available/${domain}.conf`;
+  const enabledPath = `/etc/nginx/sites-enabled/${domain}.conf`;
   const sslCertPath = `/etc/letsencrypt/live/${domain}`;
   const sslRenewalPath = `/etc/letsencrypt/renewal/${domain}.conf`;
 
