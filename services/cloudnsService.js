@@ -292,7 +292,7 @@ fi
    */
   async updateNginxSSLConfig(domain) {
     try {
-      const nginxConfigPath = `/etc/nginx/sites-available/${domain}`;
+      const nginxConfigPath = `/etc/nginx/sites-available/${domain}.conf`;
       
       // Read current config
       const currentConfig = await require('fs').promises.readFile(nginxConfigPath, 'utf8');

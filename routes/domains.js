@@ -351,8 +351,8 @@ function validateDomain(domain) {
 
 // Create nginx configuration using direct file operations
 async function createNginxConfigDirect(domain) {
-  const configPath = `/etc/nginx/sites-available/${domain}`;
-  const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
+  const configPath = `/etc/nginx/sites-available/${domain}.conf`;
+  const enabledPath = `/etc/nginx/sites-enabled/${domain}.conf`;
 
   // Create the nginx configuration content with exact format specified by user
   const nginxConfig = `server {
