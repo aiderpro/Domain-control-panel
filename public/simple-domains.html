@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Domain Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .domain-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid #dee2e6;
+        }
+        .domain-card.ssl-enabled {
+            border-left-color: #28a745;
+        }
+        .domain-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        .ssl-badge {
+            font-size: 0.8rem;
+        }
+        .loading {
+            display: none;
+        }
+        .loading.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-server me-2"></i>Simple Domain Manager
+            </span>
+            <div>
+                <span id="domainCount" class="badge bg-primary me-2">0 domains</span>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Login Form -->
+        <div id="loginForm" class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Login</h4>
+                    </div>
+                    <div class="card-body">
+                        <form onsubmit="login(event)">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="username" value="admin" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="password" value="domain2025" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Login</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard -->
+        <div id="dashboard" style="display: none;">
+            <!-- Add Domain Form -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Add New Domain</h5>
+                        </div>
+                        <div class="card-body">
+                            <form onsubmit="addDomain(event)">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control" id="newDomain" 
+                                               placeholder="example.com" required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <input type="email" class="form-control" id="sslEmail" 
+                                               placeholder="admin@example.com">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" id="installSSL">
+                                            <label class="form-check-label" for="installSSL">
+                                                Install SSL Certificate
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="submit" class="btn btn-success">
+                                            <i class="fas fa-plus"></i> Add Domain
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loading" class="text-center loading">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Processing request...</p>
+            </div>
+
+            <!-- Alerts -->
+            <div id="alerts"></div>
+
+            <!-- Domains List -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Domains</h5>
+                            <button class="btn btn-outline-primary btn-sm" onclick="loadDomains()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="domainsList" class="row">
+                                <!-- Domains will be loaded here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let authToken = null;
+        let domains = [];
+
+        // Check if already logged in
+        document.addEventListener('DOMContentLoaded', function() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                authToken = token;
+                showDashboard();
+                loadDomains();
+            }
+        });
+
+        function showAlert(message, type = 'info') {
+            const alertsContainer = document.getElementById('alerts');
+            const alertId = 'alert-' + Date.now();
+            
+            const alertHtml = `
+                <div id="${alertId}" class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertsContainer.insertAdjacentHTML('beforeend', alertHtml);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                const alertElement = document.getElementById(alertId);
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 5000);
+        }
+
+        function showLoading() {
+            document.getElementById('loading').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.remove('show');
+        }
+
+        async function login(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    showAlert('Login successful', 'success');
+                    showDashboard();
+                    loadDomains();
+                } else {
+                    showAlert(data.error || 'Login failed', 'danger');
+                }
+            } catch (error) {
+                showAlert('Login error: ' + error.message, 'danger');
+            }
+        }
+
+        function logout() {
+            authToken = null;
+            localStorage.removeItem('authToken');
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('dashboard').style.display = 'none';
+            showAlert('Logged out successfully', 'info');
+        }
+
+        function showDashboard() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+        }
+
+        async function loadDomains() {
+            showLoading();
+            
+            try {
+                const response = await fetch('/api/domains', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    domains = data.domains;
+                    renderDomains();
+                    updateDomainCount(data.stats);
+                } else {
+                    showAlert(data.error || 'Failed to load domains', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error loading domains: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function updateDomainCount(stats) {
+            const countElement = document.getElementById('domainCount');
+            countElement.textContent = `${stats.total} domains (${stats.withSSL} with SSL)`;
+        }
+
+        function renderDomains() {
+            const container = document.getElementById('domainsList');
+            
+            if (domains.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12 text-center text-muted">
+                        <i class="fas fa-globe fa-3x mb-3"></i>
+                        <p>No domains configured yet. Add your first domain above.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const domainsHtml = domains.map(domain => `
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card domain-card ${domain.hasSSL ? 'ssl-enabled' : ''}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="card-title mb-0">${domain.domain}</h6>
+                                <span class="badge ${domain.hasSSL ? 'bg-success' : 'bg-secondary'} ssl-badge">
+                                    ${domain.hasSSL ? 'SSL' : 'No SSL'}
+                                </span>
+                            </div>
+                            
+                            <p class="card-text small text-muted">
+                                Config: ${domain.configFile}<br>
+                                Ports: ${domain.ports.join(', ')}
+                            </p>
+                            
+                            <div class="btn-group btn-group-sm w-100" role="group">
+                                ${!domain.hasSSL ? `
+                                    <button class="btn btn-outline-success" onclick="installSSL('${domain.domain}')">
+                                        <i class="fas fa-lock"></i> Install SSL
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-outline-warning" onclick="removeSSL('${domain.domain}')">
+                                        <i class="fas fa-unlock"></i> Remove SSL
+                                    </button>
+                                `}
+                                <button class="btn btn-outline-danger" onclick="deleteDomain('${domain.domain}', ${domain.hasSSL})">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = domainsHtml;
+        }
+
+        async function addDomain(event) {
+            event.preventDefault();
+            
+            const domain = document.getElementById('newDomain').value.trim();
+            const email = document.getElementById('sslEmail').value.trim();
+            const installSSL = document.getElementById('installSSL').checked;
+            
+            if (!domain) {
+                showAlert('Domain name is required', 'warning');
+                return;
+            }
+            
+            if (installSSL && !email) {
+                showAlert('Email is required for SSL installation', 'warning');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const response = await fetch('/api/domains', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': authToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        domain: domain,
+                        installSSL: installSSL,
+                        email: email
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert(`Domain ${data.domain} added successfully`, 'success');
+                    if (data.ssl && !data.ssl.success) {
+                        showAlert(`SSL installation failed: ${data.ssl.error}`, 'warning');
+                    }
+                    
+                    // Clear form
+                    document.getElementById('newDomain').value = '';
+                    document.getElementById('sslEmail').value = '';
+                    document.getElementById('installSSL').checked = false;
+                    
+                    // Reload domains
+                    loadDomains();
+                } else {
+                    showAlert(data.error || 'Failed to add domain', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error adding domain: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function installSSL(domain) {
+            const email = prompt(`Enter email address for SSL certificate for ${domain}:`);
+            if (!email) return;
+            
+            showLoading();
+            
+            try {
+                const response = await fetch(`/api/domains/${domain}/ssl`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': authToken,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email: email })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert(`SSL certificate installed for ${domain}`, 'success');
+                    loadDomains();
+                } else {
+                    showAlert(data.error || 'Failed to install SSL', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error installing SSL: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function removeSSL(domain) {
+            if (!confirm(`Remove SSL certificate for ${domain}?`)) return;
+            
+            showLoading();
+            
+            try {
+                const response = await fetch(`/api/domains/${domain}/ssl`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert(`SSL certificate removed for ${domain}`, 'success');
+                    loadDomains();
+                } else {
+                    showAlert(data.error || 'Failed to remove SSL', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error removing SSL: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function deleteDomain(domain, hasSSL) {
+            const confirmMessage = hasSSL 
+                ? `Delete ${domain} and remove its SSL certificate?`
+                : `Delete ${domain}?`;
+            
+            if (!confirm(confirmMessage)) return;
+            
+            showLoading();
+            
+            try {
+                const url = hasSSL 
+                    ? `/api/domains/${domain}?removeSSL=true`
+                    : `/api/domains/${domain}`;
+                
+                const response = await fetch(url, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert(`Domain ${domain} deleted successfully`, 'success');
+                    loadDomains();
+                } else {
+                    showAlert(data.error || 'Failed to delete domain', 'danger');
+                }
+            } catch (error) {
+                showAlert('Error deleting domain: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+    </script>
+</body>
+</html>
