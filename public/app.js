@@ -14,29 +14,38 @@ class SSLManager {
     this.cloudnsStatus = null;
     this.isAuthenticated = false;
     this.currentUser = null;
-
+    
     // API Base URL configuration
     this.apiBaseUrl = this.getApiBaseUrl();
-
+    
     // Pagination settings
     this.currentPage = 1;
     this.itemsPerPage = 25;
     this.totalPages = 1;
-
+    
     // Filter and search settings
     this.searchTerm = '';
     this.statusFilter = 'all'; // all, ssl, no-ssl, expiring, expired
     this.sortBy = 'domain'; // domain, expiry, status
     this.sortOrder = 'asc'; // asc, desc
-
+    
     this.init();
   }
 
   getApiBaseUrl() {
-    // Use current domain for API calls
-    const currentUrl = `${window.location.protocol}//${window.location.host}`;
-    console.log('Using API server:', currentUrl);
-    return currentUrl;
+    // Use local development server for testing
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isLocal) {
+      const localApiUrl = `${window.location.protocol}//${window.location.host}`;
+      console.log('Using local API server:', localApiUrl);
+      return localApiUrl;
+    } else {
+      // Use current domain for production
+      const productionApiUrl = window.location.origin;
+      console.log('Using production API server:', productionApiUrl);
+      return productionApiUrl;
+    }
   }
 
   async init() {
@@ -44,43 +53,31 @@ class SSLManager {
     if (document.readyState === 'loading') {
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
-
-    // Ensure app container exists
-    let attempts = 0;
-    while (!document.getElementById('app') && attempts < 50) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      attempts++;
-    }
-
-    if (!document.getElementById('app')) {
-      console.error('App container not found after waiting');
-      return;
-    }
-
+    
     // Check authentication status first
     const authStatus = await this.checkAuthentication();
     if (!authStatus.authenticated) {
       window.location.href = '/login.html';
       return;
     }
-
+    
     this.isAuthenticated = true;
     this.currentUser = authStatus.user;
-
+    
     // Initialize UI components in order
     this.renderApp();
     this.renderDashboard();
-
+    
     // Wait for DOM elements to be rendered
     await this.ensureDOMReady();
-
+    
     this.bindEvents();
     this.initSocket();
-
+    
     // Load domains after everything is set up
     this.loadDomains();
   }
-
+  
   async ensureDOMReady() {
     // Wait for dashboard elements to be in DOM
     let attempts = 0;
@@ -88,7 +85,7 @@ class SSLManager {
       await new Promise(resolve => setTimeout(resolve, 50));
       attempts++;
     }
-
+    
     if (!document.getElementById('domain-list-container')) {
       console.error('Dashboard container not found after waiting');
     }
@@ -128,13 +125,13 @@ class SSLManager {
       timeout: 20000,
       forceNew: false
     };
-
+    
     // Use appropriate server based on environment
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://cpanel.webeezix.in';
-
+    const socketUrl = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://sitedev.eezix.com';
+    
     this.socket = io(socketUrl, socketOptions);
-
+    
     this.socket.on('connect', () => {
       console.log('Connected to server');
       this.connectionStatus = 'connected';
@@ -157,7 +154,7 @@ class SSLManager {
       });
       this.connectionStatus = 'error';
       this.updateConnectionStatus();
-
+      
       // Add user-friendly error notification
       this.addNotification('error', `Connection failed: ${error.message || 'Server unreachable'}. Check server status.`, true);
     });
@@ -236,80 +233,43 @@ class SSLManager {
     this.socket.on('autorenewal_check_error', (data) => {
       this.addNotification('error', `Renewal check failed: ${data.error}`, true);
     });
-
-    // SSL data refresh listener for updated certificate information
-    this.socket.on('ssl_data_refreshed', (data) => {
-      console.log(`SSL data refreshed for ${data.domain}:`, data.ssl);
-
-      // Update domain data with fresh SSL information
-      const domainIndex = this.domains.findIndex(d => d.domain === data.domain);
-      if (domainIndex !== -1) {
-        this.domains[domainIndex].ssl = data.ssl;
-
-        // Re-render domain list and SSL panel if this domain is selected
-        this.renderDomainList();
-        if (this.selectedDomain === data.domain) {
-          this.renderSSLPanel();
-        }
-
-        this.addNotification('success', `SSL certificate data updated for ${data.domain}`, true);
-      }
-    });
-
-    // General domain refresh trigger
-    this.socket.on('domain_refresh_needed', () => {
-      console.log('Domain refresh triggered, reloading all domain data...');
-      this.loadDomains();
-    });
-
-    // Force complete domain reload after SSL operations
-    this.socket.on('force_domain_reload', () => {
-      console.log('Force domain reload triggered after SSL operation...');
-      setTimeout(() => {
-        this.loadDomains();
-      }, 2000);
-    });
   }
 
-  async api(method, url, data = null) {
+  async api(method, url, data = null, options = {}) {
     try {
       const finalUrl = `${this.apiBaseUrl}/api${url}`;
       console.log(`Making ${method} request to: ${finalUrl}`);
-
+      
       const config = {
         method,
         url: finalUrl,
-        timeout: 60000,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
+        timeout: options.timeout || 60000,
+        headers: { 'Content-Type': 'application/json' },
         withCredentials: true
       };
-
+      
       if (data) {
         config.data = data;
         console.log('Request data:', data);
       }
-
+      
       const response = await axios(config);
       console.log('API Response:', response.status, response.data);
       return response.data;
     } catch (error) {
+      // Handle authentication errors
+      if (error.response?.status === 401) {
+        window.location.href = '/login.html';
+        return;
+      }
+      
       console.error('API Error details:', {
         url: error.config?.url,
         method: error.config?.method,
         status: error.response?.status,
         statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
+        data: error.response?.data
       });
-
-      // If 404, it might be an endpoint issue
-      if (error.response?.status === 404) {
-        console.error('404 Error - Endpoint not found. Check if server routes are properly configured.');
-      }
-
       throw error;
     }
   }
@@ -324,13 +284,13 @@ class SSLManager {
     try {
       this.loading = true;
       this.renderLoading();
-
+      
       const response = await this.api('GET', '/domains');
       this.domains = response.domains || [];
-
+      
     } catch (error) {
       console.error('Error loading domains:', error);
-
+      
       container.innerHTML = `
         <div class="text-center py-5">
           <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
@@ -341,13 +301,13 @@ class SSLManager {
           </button>
         </div>
       `;
-
+      
       this.addNotification('error', 'Failed to load domains: ' + (error.message || 'Unknown error'), true);
       return;
     } finally {
       this.loading = false;
     }
-
+    
     this.applyFiltersAndSort();
     this.updateStats();
     this.renderDomainList();
@@ -357,7 +317,7 @@ class SSLManager {
   async loadAutorenewalData() {
     try {
       const response = await this.api('GET', '/autorenewal/status');
-
+      
       // Ensure response has the expected structure
       if (response && typeof response === 'object') {
         this.autorenewalData = response;
@@ -382,13 +342,13 @@ class SSLManager {
           }
         };
       }
-
+      
       if (this.activeTab === 'autorenewal') {
         this.renderAutorenewalTab();
       }
     } catch (error) {
       console.error('Error loading autorenewal data:', error);
-
+      
       // Create fallback data structure
       this.autorenewalData = {
         success: true,
@@ -408,18 +368,18 @@ class SSLManager {
           failedRenewals: 0
         }
       };
-
+      
       if (this.activeTab === 'autorenewal') {
         this.renderAutorenewalTab();
       }
-
+      
       this.addNotification('warning', 'Autorenewal system initialized with default settings', true);
     }
   }
 
   applyFiltersAndSort() {
     let filtered = [...this.domains];
-
+    
     // Apply search filter
     if (this.searchTerm) {
       const searchLower = this.searchTerm.toLowerCase();
@@ -430,7 +390,7 @@ class SSLManager {
         ))
       );
     }
-
+    
     // Apply status filter
     if (this.statusFilter !== 'all') {
       filtered = filtered.filter(domain => {
@@ -444,11 +404,11 @@ class SSLManager {
         }
       });
     }
-
+    
     // Apply sorting
     filtered.sort((a, b) => {
       let aValue, bValue;
-
+      
       switch (this.sortBy) {
         case 'expiry':
           aValue = a.ssl?.expiryDate ? new Date(a.ssl.expiryDate) : new Date(0);
@@ -462,55 +422,21 @@ class SSLManager {
           aValue = a.domain.toLowerCase();
           bValue = b.domain.toLowerCase();
       }
-
+      
       if (this.sortOrder === 'desc') {
         return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
       } else {
         return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
       }
     });
-
+    
     this.filteredDomains = filtered;
     this.totalPages = Math.ceil(filtered.length / this.itemsPerPage);
-
+    
     // Reset to first page if current page is beyond total pages
     if (this.currentPage > this.totalPages) {
       this.currentPage = 1;
     }
-  }
-
-  getCurrentPageDomains() {
-    const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-    const endIndex = startIndex + this.itemsPerPage;
-    return this.filteredDomains.slice(startIndex, endIndex);
-  }
-
-  setPage(page) {
-    if (page >= 1 && page <= this.totalPages) {
-      this.currentPage = page;
-      this.renderDomainList();
-    }
-  }
-
-  setSearch(term) {
-    this.searchTerm = term;
-    this.currentPage = 1; // Reset to first page when searching
-    this.applyFiltersAndSort();
-    this.renderDomainList();
-  }
-
-  setStatusFilter(filter) {
-    this.statusFilter = filter;
-    this.currentPage = 1; // Reset to first page when filtering
-    this.applyFiltersAndSort();
-    this.renderDomainList();
-  }
-
-  setSorting(sortBy, sortOrder) {
-    this.sortBy = sortBy;
-    this.sortOrder = sortOrder;
-    this.applyFiltersAndSort();
-    this.renderDomainList();
   }
 
   getSSLSortValue(ssl) {
@@ -562,12 +488,12 @@ class SSLManager {
     try {
       const methodLabel = method === 'dns' ? 'DNS challenge' : 'nginx verification';
       this.addNotification('info', `Starting SSL installation for ${domain} using ${methodLabel}...`, false);
-
+      
       // Set longer timeout for DNS method
       const timeout = method === 'dns' ? 180000 : 120000; // 3 minutes for DNS, 2 minutes for nginx
-
+      
       const response = await this.api('POST', '/ssl/install', { domain, email, method }, { timeout });
-
+      
       if (response.success) {
         this.addNotification('success', `SSL installation started for ${domain} using ${methodLabel}`, false);
       } else {
@@ -575,7 +501,7 @@ class SSLManager {
       }
     } catch (error) {
       console.error('SSL installation error:', error);
-
+      
       if (error.code === 'ECONNABORTED' && method === 'dns') {
         this.addNotification('error', `DNS SSL installation timed out for ${domain}. CloudNS credentials may not be configured. Try nginx method instead.`, true);
       } else if (error.code === 'ECONNABORTED') {
@@ -601,9 +527,9 @@ class SSLManager {
   async renewSSL(domain) {
     try {
       this.addNotification('info', `Starting SSL renewal for ${domain}...`, false);
-
+      
       const response = await this.api('POST', '/ssl/renew', { domain });
-
+      
       if (response.success) {
         this.addNotification('success', `SSL renewal started for ${domain}`, false);
       } else {
@@ -618,9 +544,9 @@ class SSLManager {
   async renewAllSSL() {
     try {
       this.addNotification('info', 'Starting SSL renewal for all domains...', false);
-
+      
       const response = await this.api('POST', '/ssl/renew-all');
-
+      
       if (response.success) {
         this.addNotification('success', 'SSL renewal started for all domains', false);
       } else {
@@ -629,92 +555,6 @@ class SSLManager {
     } catch (error) {
       console.error('SSL renewal error:', error);
       this.addNotification('error', `SSL renewal failed: ${error.message}`, true);
-    }
-  }
-
-  async cleanupCertbot() {
-    try {
-      this.addNotification('info', 'Cleaning up certbot processes and locks...', true);
-      
-      const response = await this.api('POST', '/ssl/cleanup');
-      
-      if (response.success) {
-        this.addNotification('success', 'Certbot cleanup completed successfully');
-      } else {
-        this.addNotification('error', `Cleanup failed: ${response.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error cleaning up certbot:', error);
-      this.addNotification('error', 'Failed to cleanup certbot processes');
-    }
-  }
-
-  async checkSSLQueue() {
-    try {
-      const response = await this.api('GET', '/ssl/queue');
-      
-      if (response.success) {
-        const { certbotRunning, queueLength, processing } = response;
-        
-        let message = `Certbot Status: ${certbotRunning ? 'Running' : 'Available'}`;
-        if (queueLength > 0) {
-          message += ` | Queue: ${queueLength} domains processing`;
-        }
-        
-        this.addNotification('info', message);
-        
-        if (processing.length > 0) {
-          console.log('Currently processing domains:', processing);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking SSL queue:', error);
-      this.addNotification('error', 'Failed to check SSL queue status');
-    }
-  }
-
-  async clearSSLCache(domain = null) {
-    try {
-      const payload = domain ? { domain } : {};
-      this.addNotification('info', domain ? `Clearing SSL cache for ${domain}...` : 'Clearing all SSL cache...', true);
-      
-      const response = await this.api('POST', '/ssl/clear-cache', payload);
-      
-      if (response.success) {
-        this.addNotification('success', response.message);
-        // Refresh domains after clearing cache
-        await this.loadDomains();
-      } else {
-        this.addNotification('error', `Cache clear failed: ${response.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error clearing SSL cache:', error);
-      this.addNotification('error', 'Failed to clear SSL cache');
-    }
-  }
-
-  async refreshSSLData(domain) {
-    try {
-      this.addNotification('info', `Refreshing SSL certificate data for ${domain}...`, false);
-
-      const response = await this.api('POST', `/ssl/refresh/${domain}`);
-
-      if (response.success) {
-        // Update the domain's SSL data immediately
-        const domainIndex = this.domains.findIndex(d => d.domain === domain);
-        if (domainIndex !== -1) {
-          this.domains[domainIndex].ssl = response.ssl;
-          this.renderDomainList();
-          if (this.selectedDomain === domain) {
-            this.renderSSLPanel();
-          }
-        }
-
-        this.addNotification('success', `SSL certificate data refreshed for ${domain}`, true);
-      }
-    } catch (error) {
-      console.error('Error refreshing SSL data:', error);
-      this.addNotification('error', `Failed to refresh SSL data for ${domain}`, true);
     }
   }
 
@@ -759,7 +599,7 @@ class SSLManager {
     if (!statusElement) return;
 
     let statusClass, statusText, statusIcon;
-
+    
     switch (this.connectionStatus) {
       case 'connected':
         statusClass = 'text-success';
@@ -787,11 +627,7 @@ class SSLManager {
   }
 
   renderApp() {
-    const root = document.getElementById('app');
-    if (!root) {
-      console.error('App container element not found');
-      return;
-    }
+    const root = document.getElementById('root');
     root.innerHTML = `
       <div class="App">
         <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -815,9 +651,9 @@ class SSLManager {
             </div>
           </div>
         </nav>
-
+        
         <div id="notification-container" class="notification-container"></div>
-
+        
         <div class="container-fluid mt-4">
           <div id="main-content"></div>
         </div>
@@ -828,7 +664,7 @@ class SSLManager {
   renderDashboard() {
     const mainContent = document.getElementById('main-content');
     if (!mainContent) return;
-
+    
     mainContent.innerHTML = `
       <!-- Navigation Tabs -->
       <div class="row mb-4">
@@ -860,7 +696,7 @@ class SSLManager {
         <!-- Content will be rendered here based on active tab -->
       </div>
     `;
-
+    
     // Load appropriate tab content
     if (this.activeTab === 'domains') {
       this.renderDomainsTab();
@@ -872,7 +708,7 @@ class SSLManager {
   switchTab(tab) {
     this.activeTab = tab;
     this.renderDashboard();
-
+    
     if (tab === 'domains') {
       this.loadDomains();
     } else if (tab === 'autorenewal') {
@@ -883,7 +719,7 @@ class SSLManager {
   renderDomainsTab() {
     const tabContent = document.getElementById('tab-content');
     if (!tabContent) return;
-
+    
     tabContent.innerHTML = `
       <div class="row">
         <!-- Statistics Cards -->
@@ -958,15 +794,6 @@ class SSLManager {
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="mb-0">Domain Management</h5>
               <div class="d-flex gap-2">
-                <button class="btn btn-outline-secondary btn-sm" onclick="sslManager.checkSSLQueue()">
-                  <i class="fas fa-tasks me-1"></i> Queue Status
-                </button>
-                <button class="btn btn-outline-info btn-sm" onclick="sslManager.clearSSLCache()">
-                  <i class="fas fa-database me-1"></i> Clear Cache
-                </button>
-                <button class="btn btn-outline-warning btn-sm" onclick="sslManager.cleanupCertbot()">
-                  <i class="fas fa-broom me-1"></i> Cleanup
-                </button>
                 <button class="btn btn-outline-primary btn-sm" onclick="sslManager.refreshDomains()">
                   <i class="fas fa-sync-alt me-1"></i> Refresh
                 </button>
@@ -1275,7 +1102,7 @@ class SSLManager {
         </div>
         <div class="card-body">
           <h6 class="border-bottom pb-2 mb-3">${domain.domain}</h6>
-
+          
           <div class="mb-3">
             <label class="form-label fw-bold">Status</label>
             <div>${this.renderSSLStatus(domain)}</div>
@@ -1372,7 +1199,7 @@ class SSLManager {
 
   renderCertificateActions(domain) {
     const ssl = domain.ssl;
-
+    
     return `
       <div class="btn-group" role="group">
         ${!ssl?.hasSSL ? `
@@ -1384,9 +1211,6 @@ class SSLManager {
             <i class="fas fa-sync-alt me-1"></i> Renew
           </button>
         `}
-        <button class="btn btn-info btn-sm" onclick="event.stopPropagation(); sslManager.refreshSSLData('${domain.domain}')" title="Refresh SSL Data">
-          <i class="fas fa-refresh me-1"></i> Refresh
-        </button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); sslManager.deleteDomain('${domain.domain}')" title="Delete Domain">
           <i class="fas fa-trash me-1"></i> Delete
         </button>
@@ -1399,7 +1223,7 @@ class SSLManager {
     if (formRow) {
       const isVisible = formRow.style.display !== 'none';
       formRow.style.display = isVisible ? 'none' : 'table-row';
-
+      
       if (!isVisible) {
         const emailInput = document.getElementById(`ssl-email-${domain}`);
         if (emailInput) {
@@ -1412,12 +1236,12 @@ class SSLManager {
   async installSSLFromForm(domain) {
     const emailInput = document.getElementById(`ssl-email-${domain}`);
     const methodSelect = document.getElementById(`ssl-method-${domain}`);
-
+    
     if (!emailInput || !methodSelect) return;
 
     const email = emailInput.value.trim();
     const method = methodSelect.value;
-
+    
     if (!email) {
       this.addNotification('error', 'Email address is required', true);
       emailInput.focus();
@@ -1439,7 +1263,7 @@ class SSLManager {
     if (form) {
       const isVisible = form.style.display !== 'none';
       form.style.display = isVisible ? 'none' : 'block';
-
+      
       if (!isVisible) {
         const domainInput = document.getElementById('new-domain-input');
         if (domainInput) {
@@ -1462,13 +1286,13 @@ class SSLManager {
 
     // Remove protocol if present
     domain = domain.replace(/^https?:\/\//, '');
-
+    
     // Remove trailing slash
     domain = domain.replace(/\/$/, '');
-
+    
     // Check for valid domain format
     const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-
+    
     if (!domainRegex.test(domain)) {
       return { valid: false, error: 'Invalid domain format' };
     }
@@ -1489,11 +1313,11 @@ class SSLManager {
   async addDomainFromForm() {
     const domainInput = document.getElementById('new-domain-input');
     const validationMessage = document.getElementById('domain-validation-message');
-
+    
     if (!domainInput || !validationMessage) return;
 
     const domain = domainInput.value.trim();
-
+    
     // Clear previous validation message
     validationMessage.textContent = '';
     validationMessage.className = 'form-text';
@@ -1522,16 +1346,16 @@ class SSLManager {
 
     try {
       this.addNotification('info', `Adding domain ${validation.domain}...`, false);
-
+      
       const response = await this.api('POST', '/domains/add', { domain: validation.domain });
-
+      
       if (response.success) {
         this.addNotification('success', `Domain ${validation.domain} added successfully`, true);
-
+        
         // Clear form and hide it
         domainInput.value = '';
         this.toggleAddDomainForm();
-
+        
         // Refresh domain list
         await this.loadDomains();
       } else {
@@ -1560,17 +1384,17 @@ class SSLManager {
 
     try {
       this.addNotification('info', `Deleting domain ${domain}...`, false);
-
+      
       const response = await this.api('DELETE', `/domains/delete/${domain}`);
-
+      
       if (response.success) {
         this.addNotification('success', `Domain ${domain} deleted successfully`, true);
-
+        
         // Clear selected domain if it was the deleted one
         if (this.selectedDomain?.domain === domain) {
           this.selectedDomain = null;
         }
-
+        
         // Refresh domain list
         await this.loadDomains();
       } else {
@@ -1772,7 +1596,7 @@ class SSLManager {
   renderAutorenewalRow(domain) {
     const ssl = domain.ssl;
     const autorenewal = domain.autorenewal;
-
+    
     let statusBadge, expiryDisplay, nextCheck, actions;
 
     if (!ssl?.hasSSL) {
@@ -1788,23 +1612,23 @@ class SSLManager {
       statusBadge = autorenewal.enabled 
         ? '<span class="badge bg-success"><i class="fas fa-check-circle me-1"></i> Enabled</span>'
         : '<span class="badge bg-warning"><i class="fas fa-pause-circle me-1"></i> Disabled</span>';
-
+      
       const daysRemaining = ssl.daysRemaining || 0;
       let expiryClass = 'text-success';
       if (daysRemaining <= 30) expiryClass = 'text-warning';
       if (daysRemaining <= 7) expiryClass = 'text-danger';
-
+      
       expiryDisplay = `
         <span class="${expiryClass}">
           <i class="fas fa-shield-alt me-1"></i> ${daysRemaining} days
         </span>
         <br><small class="text-muted">${new Date(ssl.expiryDate).toLocaleDateString()}</small>
       `;
-
+      
       nextCheck = autorenewal.nextCheck 
         ? `<span class="text-info">${this.formatRelativeDate(autorenewal.nextCheck)}</span>`
         : '<span class="text-muted">-</span>';
-
+      
       actions = `
         <div class="btn-group" role="group">
           <button class="btn btn-outline-${autorenewal.enabled ? 'warning' : 'success'} btn-sm" 
@@ -1840,7 +1664,7 @@ class SSLManager {
     const now = new Date();
     const diffTime = date.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+    
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Tomorrow';
     if (diffDays > 1) return `${diffDays} days`;
@@ -1852,13 +1676,13 @@ class SSLManager {
       const globalEnabled = document.getElementById('globalAutoRenewal').checked;
       const renewalDays = parseInt(document.getElementById('renewalDays').value);
       const checkFrequency = document.getElementById('checkFrequency').value;
-
+      
       const response = await this.api('POST', '/autorenewal/settings', {
         globalEnabled,
         renewalDays,
         checkFrequency
       });
-
+      
       if (response.success) {
         this.addNotification('success', 'Autorenewal settings updated successfully', true);
       }
@@ -1871,7 +1695,7 @@ class SSLManager {
   async toggleDomainAutorenewal(domain, enabled) {
     try {
       const response = await this.api('POST', `/autorenewal/toggle/${domain}`, { enabled });
-
+      
       if (response.success) {
         this.addNotification('success', `Autorenewal ${enabled ? 'enabled' : 'disabled'} for ${domain}`, true);
         this.loadAutorenewalData();
@@ -1884,29 +1708,12 @@ class SSLManager {
 
   async runRenewalCheck() {
     try {
-      this.addNotification('info', 'Starting comprehensive SSL renewal check for all domains...', true);
+      this.addNotification('info', 'Starting SSL renewal check for all domains...', false);
       
       const response = await this.api('POST', '/autorenewal/check');
       
       if (response.success) {
-        const result = response.result;
-        if (result && result.results) {
-          const { renewed, failed, skipped, eligible } = result.results;
-          let message = `Renewal check completed: ${renewed} certificates renewed`;
-          if (failed > 0) message += `, ${failed} failed`;
-          if (skipped > 0) message += `, ${skipped} skipped`;
-          message += ` (${eligible} eligible for renewal)`;
-          
-          this.addNotification('success', message, true);
-        } else {
-          this.addNotification('success', 'SSL renewal check completed successfully', true);
-        }
-        
-        // Refresh both domain list and autorenewal data
-        await this.loadDomains();
-        await this.loadAutorenewalData();
-      } else {
-        this.addNotification('error', `Renewal check failed: ${response.message || 'Unknown error'}`, true);
+        this.addNotification('success', 'Renewal check completed successfully', true);
       }
     } catch (error) {
       console.error('Error running renewal check:', error);
@@ -1917,9 +1724,9 @@ class SSLManager {
   async forceRenewalDomain(domain) {
     try {
       this.addNotification('info', `Starting SSL renewal for ${domain}...`, false);
-
+      
       const response = await this.api('POST', `/autorenewal/renew/${domain}`);
-
+      
       if (response.success) {
         this.addNotification('success', `SSL renewal initiated for ${domain}`, true);
       }
@@ -2010,9 +1817,9 @@ class SSLManager {
       newDomainInput.addEventListener('input', (e) => {
         const domain = e.target.value.trim();
         const validationMessage = document.getElementById('domain-validation-message');
-
+        
         if (!validationMessage) return;
-
+        
         if (!domain) {
           validationMessage.textContent = '';
           return;
@@ -2080,15 +1887,15 @@ class SSLManager {
 
     const expiryDate = new Date(ssl.expiryDate);
     const daysRemaining = this.getDaysUntilExpiry(ssl);
-
+    
     // Handle invalid dates
     if (isNaN(expiryDate.getTime())) {
       return '<span class="text-danger">Invalid Date</span>';
     }
-
+    
     let className = 'text-success';
     let statusText = 'days remaining';
-
+    
     if (daysRemaining < 0) {
       className = 'text-danger';
       statusText = 'days expired';
@@ -2116,24 +1923,24 @@ class SSLManager {
 
   getDaysUntilExpiry(ssl) {
     if (!ssl || !ssl.expiryDate) return 0;
-
+    
     const now = new Date();
     const expiry = new Date(ssl.expiryDate);
-
+    
     // Handle invalid dates
     if (isNaN(expiry.getTime())) {
       console.error('Invalid expiry date:', ssl.expiryDate);
       return 0;
     }
-
+    
     // Set both dates to start of day for accurate calculation
     const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const expiryDate = new Date(expiry.getFullYear(), expiry.getMonth(), expiry.getDate());
-
+    
     // Certbot-style calculation: count full days remaining excluding today
     const diffTime = expiryDate.getTime() - nowDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) - 1;
-
+    
     return diffDays; // Allow negative values to show expired certificates
   }
 
@@ -2154,7 +1961,7 @@ class SSLManager {
                 <h6 class="alert-heading">Certificate Generated Successfully!</h6>
                 <p class="mb-0">Your SSL certificate has been created using DNS challenge. Follow the steps below to complete the setup.</p>
               </div>
-
+              
               <div class="card">
                 <div class="card-header">
                   <h6 class="mb-0"><i class="fas fa-list-ol me-2"></i>Manual Configuration Steps</h6>
@@ -2165,7 +1972,7 @@ class SSLManager {
                   </ol>
                 </div>
               </div>
-
+              
               <div class="card mt-3">
                 <div class="card-header d-flex justify-content-between align-items-center">
                   <h6 class="mb-0"><i class="fas fa-code me-2"></i>Nginx SSL Configuration</h6>
@@ -2177,7 +1984,7 @@ class SSLManager {
                   <pre id="nginxConfig" class="bg-light p-3 rounded"><code>${data.nginxConfig || ''}</code></pre>
                 </div>
               </div>
-
+              
               <div class="alert alert-info mt-3">
                 <h6 class="alert-heading">Next Steps:</h6>
                 <ul class="mb-0">
@@ -2198,23 +2005,23 @@ class SSLManager {
         </div>
       </div>
     `;
-
+    
     // Remove existing modal if present
     const existingModal = document.getElementById('dnsConfigModal');
     if (existingModal) {
       existingModal.remove();
     }
-
+    
     // Add modal to page
     document.body.insertAdjacentHTML('beforeend', modalHtml);
-
+    
     // Show modal
     const modal = new bootstrap.Modal(document.getElementById('dnsConfigModal'));
     modal.show();
-
+    
     // Add success notification
     this.addNotification('success', `SSL certificate created for ${data.domain}. Check configuration modal for setup instructions.`, true);
-
+    
     // Clean up modal when hidden
     document.getElementById('dnsConfigModal').addEventListener('hidden.bs.modal', function () {
       this.remove();

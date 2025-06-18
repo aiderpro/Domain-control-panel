@@ -3,87 +3,6 @@ const router = express.Router();
 const certbotService = require('../services/certbotService');
 const sslService = require('../services/sslService');
 
-// Force cleanup certbot processes and locks
-router.post('/cleanup', async (req, res) => {
-  try {
-    const result = await certbotService.forceCertbotCleanup();
-    
-    res.json({
-      success: result,
-      message: result ? 'Certbot cleanup completed successfully' : 'Certbot cleanup failed',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error during certbot cleanup:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Cleanup failed',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Get processing queue status
-router.get('/queue', async (req, res) => {
-  try {
-    const queueStatus = Array.from(certbotService.processingQueue.entries()).map(([domain, startTime]) => ({
-      domain,
-      startTime: new Date(startTime).toISOString(),
-      elapsed: Date.now() - startTime
-    }));
-
-    const isRunning = await certbotService.isCertbotRunning();
-    
-    res.json({
-      success: true,
-      certbotRunning: isRunning,
-      queueLength: queueStatus.length,
-      processing: queueStatus,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error getting queue status:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get queue status',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Clear SSL cache to force fresh status checks
-router.post('/clear-cache', async (req, res) => {
-  try {
-    const { domain } = req.body;
-    
-    if (domain) {
-      sslService.clearSSLCache(domain);
-      res.json({
-        success: true,
-        message: `SSL cache cleared for ${domain}`,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      sslService.clearAllSSLCache();
-      res.json({
-        success: true,
-        message: 'All SSL cache cleared',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    console.error('Error clearing SSL cache:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to clear SSL cache',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
 // Install new SSL certificate
 router.post('/install', async (req, res) => {
   try {
@@ -119,9 +38,6 @@ router.post('/install', async (req, res) => {
       try {
         const fs = require('fs').promises;
         const path = require('path');
-        
-        // Clear SSL cache for this domain to ensure fresh status
-        sslService.clearSSLCache(normalizedDomain);
         
         // Load autorenewal configuration
         const CONFIG_DIR = path.join(__dirname, '..', 'data');
@@ -222,43 +138,9 @@ router.post('/renew', async (req, res) => {
 
     const result = await certbotService.renewCertificate(domain, req.io);
 
-    // Force immediate SSL data refresh after renewal
-    setTimeout(async () => {
-      try {
-        const sslService = require('../services/sslService');
-        
-        // Wait for certificate files to be written
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        // Clear any cached data and get fresh certificate information
-        const freshSSLData = await sslService.checkSSLStatus(domain);
-        
-        console.log(`Post-renewal SSL refresh for ${domain}:`, {
-          expires: freshSSLData?.expiryDate,
-          daysRemaining: freshSSLData?.daysUntilExpiry,
-          issued: freshSSLData?.issuedDate,
-          hasSSL: freshSSLData?.hasSSL,
-          source: freshSSLData?.source
-        });
-        
-        // Emit updated SSL data to all connected clients
-        req.io.emit('ssl_data_refreshed', {
-          domain,
-          ssl: freshSSLData,
-          timestamp: new Date().toISOString()
-        });
-        
-        // Force complete domain list refresh
-        req.io.emit('force_domain_reload');
-        
-      } catch (error) {
-        console.log(`Failed to refresh SSL data after renewal:`, error.message);
-      }
-    }, 8000); // Longer delay to ensure certificate files are fully written
-
     res.json({
       success: true,
-      message: `SSL certificate renewed for ${domain}. Updated certificate data will be available shortly.`,
+      message: `SSL certificate renewed for ${domain}`,
       domain,
       result,
       timestamp: new Date().toISOString()
@@ -308,11 +190,8 @@ router.post('/renew-all', async (req, res) => {
 // Check SSL certificate status
 router.get('/status/:domain', async (req, res) => {
   try {
-    const domain = decodeURIComponent(req.params.domain);
-    console.log(`Checking SSL status for domain: ${domain}`);
-    
+    const domain = req.params.domain;
     const sslInfo = await sslService.checkSSLStatus(domain);
-    console.log(`SSL status result for ${domain}:`, sslInfo);
 
     res.json({
       success: true,
@@ -326,7 +205,6 @@ router.get('/status/:domain', async (req, res) => {
       success: false,
       error: 'Failed to check SSL status',
       message: error.message,
-      domain: req.params.domain,
       timestamp: new Date().toISOString()
     });
   }
@@ -360,41 +238,6 @@ router.post('/auto-renew', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to configure auto-renewal',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Manual refresh endpoint for SSL data (forces fresh certificate check)
-router.post('/refresh/:domain', async (req, res) => {
-  try {
-    const { domain } = req.params;
-    const sslService = require('../services/sslService');
-    
-    console.log(`Manual SSL data refresh requested for ${domain}`);
-    
-    // Force fresh SSL certificate check
-    const freshSSLData = await sslService.checkSSLStatus(domain);
-    
-    // Emit updated data to connected clients
-    req.io.emit('ssl_data_refreshed', {
-      domain,
-      ssl: freshSSLData
-    });
-    
-    res.json({
-      success: true,
-      message: `SSL data refreshed for ${domain}`,
-      domain,
-      ssl: freshSSLData,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error(`Error refreshing SSL data for ${req.params.domain}:`, error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to refresh SSL data',
       message: error.message,
       timestamp: new Date().toISOString()
     });

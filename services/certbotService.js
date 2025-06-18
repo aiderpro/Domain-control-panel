@@ -12,9 +12,6 @@ class CertbotService {
     this.nginxPath = '/etc/nginx';
     this.cloudnsService = new CloudNSService();
     this.methodTrackingFile = path.join(__dirname, '..', 'data', 'ssl-methods.json');
-    this.processingQueue = new Map(); // Track domains being processed
-    this.maxRetries = 5;
-    this.retryDelay = 30000; // 30 seconds between retries
   }
 
   /**
@@ -52,74 +49,70 @@ class CertbotService {
       const methods = JSON.parse(data);
       return methods[domain]?.method || 'nginx'; // Default to nginx if not found
     } catch (error) {
-      return 'nginx'; // Default fallback
+      return 'nginx'; // Default to nginx if file doesn't exist
     }
+  }
+
+  /**
+   * Determine if domain should include www subdomain for SSL
+   */
+  shouldIncludeWWW(domain) {
+    // Count dots in domain to determine if it's a subdomain
+    const dotCount = (domain.match(/\./g) || []).length;
+
+    // If domain has only one dot (e.g., example.com), include www
+    // If domain has multiple dots (e.g., sub.example.com), it's already a subdomain
+    return dotCount === 1 && !domain.startsWith('www.');
+  }
+
+  /**
+   * Get domains array (includes www if applicable)
+   */
+  getDomainsForSSL(domain) {
+    // Always include both domain and www subdomain
+    return [domain, `www.${domain}`];
   }
 
   /**
    * Install SSL certificate using specified method (nginx or dns)
    */
   async installCertificate(domain, email, method = 'nginx', io = null) {
-    try {
-      // Check if certbot is already running and wait if necessary
-      await this.waitForCertbotAvailability(domain, io);
-      
-      if (method === 'dns') {
-        return await this.installCertificateWithDNS(domain, email, io);
-      } else {
-        return await this.installCertificateWithNginx(domain, email, io);
-      }
-    } catch (error) {
-      console.error('Error in installCertificate:', error);
-      if (io) {
-        io.emit('ssl_install_error', { 
-          domain, 
-          error: `Installation failed: ${error.message}` 
-        });
-      }
-      throw error;
+    if (method === 'dns') {
+      return this.installCertificateWithDNS(domain, email, io);
+    } else {
+      return this.installCertificateWithNginx(domain, email, io);
     }
   }
 
   /**
-   * Install SSL certificate using certbot with nginx verification
+   * Install SSL certificate for specific domain using nginx method
    */
   async installCertificateWithNginx(domain, email, io = null) {
     return new Promise((resolve, reject) => {
-      try {
-        if (!domain || !email) {
-          return reject(new Error('Domain and email are required'));
+      if (!domain || !email) {
+        return reject(new Error('Domain and email are required'));
+      }
+
+      // Include both domain and www subdomain
+      const args = [
+        'certonly',
+        '--nginx',
+        '--non-interactive',
+        '--agree-tos',
+        '--email', email,
+        '-d', domain,
+        '-d', `www.${domain}`
+      ];
+
+      // Check if certbot is available, if not simulate the process
+      this.checkCertbotAvailability().then(availability => {
+        if (!availability.available) {
+          return this.simulateSSLInstallation(domain, email, io, resolve, reject);
         }
 
-        // Include both domain and www subdomain
-        const args = [
-          'certonly',
-          '--nginx',
-          '--non-interactive',
-          '--agree-tos',
-          '--expand',  // Allow expanding existing certificates
-          '--allow-subset-of-names',  // Allow partial success if some domains fail
-          '--email', email,
-          '-d', domain,
-          '-d', `www.${domain}`
-        ];
-
-        // Check if certbot is available, if not simulate the process
-        this.checkCertbotAvailability().then(availability => {
-          if (!availability.available) {
-            return this.simulateSSLInstallation(domain, email, io, resolve, reject);
-          }
-
-          // Continue with real certbot installation
-          this.performRealSSLInstallation(domain, email, io, resolve, reject, args);
-        }).catch(error => {
-          console.error('Error checking certbot availability:', error);
-          reject(new Error(`Failed to check certbot availability: ${error.message}`));
-        });
-      } catch (error) {
-        console.error('Error in installCertificateWithNginx:', error);
-        reject(new Error(`SSL installation failed: ${error.message}`));
-      }
+        // Continue with real certbot installation
+        this.performRealSSLInstallation(domain, email, io, resolve, reject, args); // Pass args here
+      });
     });
   }
 
@@ -127,70 +120,248 @@ class CertbotService {
    * Simulate SSL installation for demo purposes
    */
   simulateSSLInstallation(domain, email, io, resolve, reject) {
-    try {
-      console.log(`Simulating SSL installation for ${domain} with email ${email}`);
+    console.log(`Simulating SSL installation for ${domain} with email ${email}`);
 
+    if (io) {
+      io.emit('ssl_install_progress', { 
+        domain, 
+        stage: 'starting',
+        message: 'Starting certificate installation...' 
+      });
+    }
+
+    setTimeout(() => {
       if (io) {
         io.emit('ssl_install_progress', { 
           domain, 
-          stage: 'starting',
-          message: 'Starting certificate installation...' 
+          stage: 'progress',
+          message: 'Validating domain ownership...' 
+        });
+      }
+    }, 1000);
+
+    setTimeout(() => {
+      if (io) {
+        io.emit('ssl_install_progress', { 
+          domain, 
+          stage: 'progress',
+          message: 'Generating certificate...' 
+        });
+      }
+    }, 2000);
+
+    setTimeout(() => {
+      if (io) {
+        io.emit('ssl_install_complete', { 
+          domain, 
+          success: true,
+          message: 'Certificate installed successfully' 
         });
       }
 
-      setTimeout(() => {
-        if (io) {
-          io.emit('ssl_install_progress', { 
-            domain, 
-            stage: 'progress',
-            message: 'Validating domain ownership...' 
-          });
-        }
-      }, 1000);
-
-      setTimeout(() => {
-        if (io) {
-          io.emit('ssl_install_progress', { 
-            domain, 
-            stage: 'progress',
-            message: 'Generating certificate...' 
-          });
-        }
-      }, 2000);
-
-      setTimeout(() => {
-        if (io) {
-          io.emit('ssl_install_complete', { 
-            domain, 
-            success: true,
-            message: 'SSL certificate installed successfully (simulated)' 
-          });
-        }
-
-        resolve({
-          success: true,
-          method: 'nginx',
-          message: 'Certificate installed successfully (simulated)',
-          output: 'Simulated SSL installation completed'
-        });
-      }, 3000);
-    } catch (error) {
-      console.error('Error in simulateSSLInstallation:', error);
-      reject(new Error(`Simulation failed: ${error.message}`));
-    }
+      resolve({
+        success: true,
+        message: 'Certificate installed successfully (simulated)',
+        output: `Simulated certificate installation for ${domain}`,
+        certPath: `/etc/letsencrypt/live/${domain}/fullchain.pem`
+      });
+    }, 3000);
   }
 
   /**
    * Perform real SSL installation with certbot
    */
-  performRealSSLInstallation(domain, email, io, resolve, reject, args) {
-    try {
-      // Emit status updates
+  performRealSSLInstallation(domain, email, io, resolve, reject, initialArgs) { // Accept args here
+
+    const args = initialArgs;
+
+    // Emit status updates
+    if (io) {
+      io.emit('ssl_install_progress', { 
+        domain, 
+        stage: 'starting',
+        message: 'Starting certificate installation...' 
+      });
+    }
+
+    const certbot = spawn('certbot', args);
+    let output = '';
+    let errorOutput = '';
+
+    certbot.stdout.on('data', (data) => {
+      const message = data.toString();
+      output += message;
+      console.log('Certbot stdout:', message);
+
       if (io) {
         io.emit('ssl_install_progress', { 
           domain, 
+          stage: 'progress',
+          message: message.trim() 
+        });
+      }
+    });
+
+    certbot.stderr.on('data', (data) => {
+      const message = data.toString();
+      errorOutput += message;
+      console.error('Certbot stderr:', message);
+
+      if (io) {
+        io.emit('ssl_install_progress', { 
+          domain, 
+          stage: 'warning',
+          message: message.trim() 
+        });
+      }
+    });
+
+    certbot.on('close', async (code) => {
+      if (code === 0) {
+        try {
+          // Verify certificate was created
+          const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
+          await fs.access(certPath);
+
+          // Verify nginx configuration was updated
+          await this.verifyNginxSSLConfig(domain, io);
+
+          // Test nginx configuration
+          const { spawn } = require('child_process');
+          const nginxTest = spawn('nginx', ['-t']);
+
+          nginxTest.on('close', (testCode) => {
+            if (testCode === 0) {
+              // Reload nginx to apply changes
+              const nginxReload = spawn('systemctl', ['reload', 'nginx']);
+              nginxReload.on('close', (reloadCode) => {
+                if (io) {
+                  io.emit('ssl_install_complete', { 
+                    domain, 
+                    success: true,
+                    message: reloadCode === 0 ? 'Certificate installed and nginx reloaded successfully' : 'Certificate installed but nginx reload failed'
+                  });
+                }
+              });
+            } else {
+              if (io) {
+                io.emit('ssl_install_complete', { 
+                  domain, 
+                  success: true,
+                  message: 'Certificate installed but nginx configuration has errors'
+                });
+              }
+            }
+          });
+
+          // Save the installation method for future renewals
+          await this.saveSSLMethod(domain, 'nginx');
+
+          resolve({
+            success: true,
+            method: 'nginx',
+            message: 'Certificate installed successfully',
+            output,
+            certPath
+          });
+        } catch (verifyError) {
+          if (io) {
+            io.emit('ssl_install_error', { 
+              domain, 
+              error: 'Certificate verification failed' 
+            });
+          }
+          reject(new Error('Certificate installation failed verification'));
+        }
+      } else {
+        const error = `Certbot failed with exit code ${code}: ${errorOutput}`;
+        if (io) {
+          io.emit('ssl_install_error', { domain, error });
+        }
+        reject(new Error(error));
+      }
+    });
+
+    certbot.on('error', (error) => {
+      if (io) {
+        io.emit('ssl_install_error', { domain, error: error.message });
+      }
+      reject(new Error(`Failed to start certbot: ${error.message}`));
+    });
+  }
+
+  /**
+   * Install SSL certificate for specific domain using DNS method
+   */
+  async installCertificateWithDNS(domain, email, io = null) {
+    try {
+      if (!this.cloudnsService) {
+        throw new Error('CloudNS service not available for DNS challenges');
+      }
+
+      // Always include both domain and www subdomain for DNS method
+      const domains = [domain, `www.${domain}`];
+
+      // Use CloudNS service for DNS challenge
+      const result = await this.cloudnsService.installSSLWithDNS(domains, email, io);
+
+      // Save the installation method for future renewals
+      await this.saveSSLMethod(domain, 'dns');
+
+      return {
+        ...result,
+        method: 'dns'
+      };
+    } catch (error) {
+      console.error('DNS SSL installation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Renew SSL certificate for specific domain using saved method
+   */
+  async renewCertificate(domain, io = null) {
+    try {
+      // Get the method used for initial installation
+      const method = await this.getSSLMethod(domain);
+
+      if (method === 'dns') {
+        return this.renewCertificateWithDNS(domain, io);
+      } else {
+        return this.renewCertificateWithNginx(domain, io);
+      }
+    } catch (error) {
+      console.error('Error during certificate renewal:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Renew SSL certificate for specific domain using nginx method
+   */
+  async renewCertificateWithNginx(domain, io = null) {
+    return new Promise((resolve, reject) => {
+      if (!domain) {
+        return reject(new Error('Domain is required'));
+      }
+
+      // Strip www prefix if present to get the base domain
+      const baseDomain = domain.replace(/^www\./, '');
+      
+      // Use the base domain as cert-name since certificates are issued for both domain and www.domain
+      const args = [
+        'renew',
+        '--cert-name', baseDomain,
+        '--nginx',
+        '--non-interactive'
+      ];
+
+      if (io) {
+        io.emit('ssl_renew_progress', { 
+          domain, 
           stage: 'starting',
-          message: 'Starting certificate installation...' 
+          message: `Starting certificate renewal for ${baseDomain} (includes www.${baseDomain})...` 
         });
       }
 
@@ -198,25 +369,13 @@ class CertbotService {
       let output = '';
       let errorOutput = '';
 
-      // Add error handler for spawn process
-      certbot.on('error', (error) => {
-        console.error('Certbot spawn error:', error);
-        if (io) {
-          io.emit('ssl_install_error', { 
-            domain, 
-            error: `Failed to start certbot: ${error.message}` 
-          });
-        }
-        reject(new Error(`Failed to start certbot: ${error.message}`));
-      });
-
       certbot.stdout.on('data', (data) => {
         const message = data.toString();
         output += message;
-        console.log('Certbot stdout:', message);
+        console.log('Certbot renewal stdout:', message);
 
         if (io) {
-          io.emit('ssl_install_progress', { 
+          io.emit('ssl_renew_progress', { 
             domain, 
             stage: 'progress',
             message: message.trim() 
@@ -227,10 +386,10 @@ class CertbotService {
       certbot.stderr.on('data', (data) => {
         const message = data.toString();
         errorOutput += message;
-        console.error('Certbot stderr:', message);
+        console.error('Certbot renewal stderr:', message);
 
         if (io) {
-          io.emit('ssl_install_progress', { 
+          io.emit('ssl_renew_progress', { 
             domain, 
             stage: 'warning',
             message: message.trim() 
@@ -238,235 +397,37 @@ class CertbotService {
         }
       });
 
-      certbot.on('close', async (code) => {
-        try {
-          // Always cleanup processing queue when done
-          this.cleanupProcessingQueue(domain);
-          
-          if (code === 0) {
-            // Verify certificate was created
-            const certPath = `/etc/letsencrypt/live/${domain}/fullchain.pem`;
-            await fs.access(certPath);
-
-            // Verify nginx configuration was updated
-            await this.verifyNginxSSLConfig(domain, io);
-
-            // Test nginx configuration
-            const testResult = spawn('nginx', ['-t']);
-
-            testResult.on('close', (testCode) => {
-              if (testCode === 0) {
-                // Reload nginx to apply changes
-                const reloadResult = spawn('nginx', ['-s', 'reload']);
-
-                reloadResult.on('close', (reloadCode) => {
-                  if (io) {
-                    io.emit('ssl_install_complete', { 
-                      domain, 
-                      success: true,
-                      message: reloadCode === 0 ? 'Certificate installed and nginx reloaded successfully' : 'Certificate installed but nginx reload failed'
-                    });
-                  }
-                });
-              } else {
-                if (io) {
-                  io.emit('ssl_install_complete', { 
-                    domain, 
-                    success: true,
-                    message: 'Certificate installed but nginx configuration has errors'
-                  });
-                }
-              }
-            });
-
-            // Save the installation method for future renewals
-            await this.saveSSLMethod(domain, 'nginx');
-
-            resolve({
-              success: true,
-              method: 'nginx',
-              message: 'Certificate installed successfully',
-              output,
-              certPath
-            });
-          } else {
-            // Check if error is due to another certbot instance
-            if (errorOutput.includes('Another instance of Certbot is already running')) {
-              console.log(`Certbot conflict detected for ${domain}, will retry automatically`);
-              if (io) {
-                io.emit('ssl_install_error', { 
-                  domain, 
-                  error: 'Certbot is busy with another operation. This request will be retried automatically.' 
-                });
-              }
-              reject(new Error('CERTBOT_BUSY'));
-            } else {
-              const error = `Certbot failed with exit code ${code}: ${errorOutput}`;
-              if (io) {
-                io.emit('ssl_install_error', { domain, error });
-              }
-              reject(new Error(error));
-            }
-          }
-        } catch (verifyError) {
-          console.error('Certificate verification error:', verifyError);
-          this.cleanupProcessingQueue(domain);
+      certbot.on('close', (code) => {
+        if (code === 0) {
           if (io) {
-            io.emit('ssl_install_error', { 
+            io.emit('ssl_renew_complete', { 
               domain, 
-              error: 'Certificate verification failed' 
+              success: true,
+              message: 'Certificate renewed successfully' 
             });
           }
-          reject(new Error('Certificate installation failed verification'));
+
+          resolve({
+            success: true,
+            method: 'nginx',
+            message: 'Certificate renewed successfully',
+            output
+          });
+        } else {
+          const error = `Certbot renewal failed with exit code ${code}: ${errorOutput}`;
+          if (io) {
+            io.emit('ssl_renew_error', { domain, error });
+          }
+          reject(new Error(error));
         }
       });
 
-    } catch (error) {
-      console.error('Error in performRealSSLInstallation:', error);
-      if (io) {
-        io.emit('ssl_install_error', { 
-          domain, 
-          error: `SSL installation error: ${error.message}` 
-        });
-      }
-      reject(new Error(`SSL installation failed: ${error.message}`));
-    }
-  }
-
-  /**
-   * Install SSL certificate using DNS challenge with CloudNS
-   */
-  async installCertificateWithDNS(domain, email, io = null) {
-    try {
-      if (!this.cloudnsService) {
-        throw new Error('CloudNS service not available');
-      }
-
-      return await this.cloudnsService.installSSLWithDNS(domain, email, io);
-    } catch (error) {
-      console.error('DNS SSL installation error:', error);
-      if (io) {
-        io.emit('ssl_install_error', { 
-          domain, 
-          error: error.message 
-        });
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Renew SSL certificate for specific domain using saved method
-   */
-  async renewCertificate(domain, io = null) {
-    try {
-      // Check if certbot is already running and wait if necessary
-      await this.waitForCertbotAvailability(domain, io);
-      
-      const method = await this.getSSLMethod(domain);
-      
-      if (method === 'dns') {
-        return await this.renewCertificateWithDNS(domain, io);
-      } else {
-        return await this.renewCertificateWithNginx(domain, io);
-      }
-    } catch (error) {
-      console.error('Error renewing certificate:', error);
-      this.cleanupProcessingQueue(domain);
-      if (io) {
-        io.emit('ssl_renew_error', { 
-          domain, 
-          error: error.message 
-        });
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Renew SSL certificate for specific domain using nginx method
-   */
-  async renewCertificateWithNginx(domain, io = null) {
-    return new Promise((resolve, reject) => {
-      try {
+      certbot.on('error', (error) => {
         if (io) {
-          io.emit('ssl_renew_progress', { 
-            domain, 
-            stage: 'starting',
-            message: 'Starting certificate renewal...' 
-          });
+          io.emit('ssl_renew_error', { domain, error: error.message });
         }
-
-        const certbot = spawn('certbot', ['renew', '--cert-name', domain, '--nginx']);
-        let output = '';
-        let errorOutput = '';
-
-        certbot.on('error', (error) => {
-          console.error('Certbot renewal spawn error:', error);
-          if (io) {
-            io.emit('ssl_renew_error', { 
-              domain, 
-              error: `Failed to start certbot renewal: ${error.message}` 
-            });
-          }
-          reject(new Error(`Failed to start certbot renewal: ${error.message}`));
-        });
-
-        certbot.stdout.on('data', (data) => {
-          const message = data.toString();
-          output += message;
-          console.log('Certbot renewal stdout:', message);
-
-          if (io) {
-            io.emit('ssl_renew_progress', { 
-              domain, 
-              stage: 'progress',
-              message: message.trim() 
-            });
-          }
-        });
-
-        certbot.stderr.on('data', (data) => {
-          const message = data.toString();
-          errorOutput += message;
-          console.error('Certbot renewal stderr:', message);
-        });
-
-        certbot.on('close', (code) => {
-          if (code === 0) {
-            if (io) {
-              io.emit('ssl_renew_complete', { 
-                domain, 
-                success: true,
-                message: 'Certificate renewed successfully' 
-              });
-            }
-
-            resolve({
-              success: true,
-              method: 'nginx',
-              message: 'Certificate renewed successfully',
-              output
-            });
-          } else {
-            const error = `Certbot renewal failed with exit code ${code}: ${errorOutput}`;
-            if (io) {
-              io.emit('ssl_renew_error', { domain, error });
-            }
-            reject(new Error(error));
-          }
-        });
-
-      } catch (error) {
-        console.error('Error in renewCertificateWithNginx:', error);
-        if (io) {
-          io.emit('ssl_renew_error', { 
-            domain, 
-            error: `SSL renewal error: ${error.message}` 
-          });
-        }
-        reject(new Error(`SSL renewal failed: ${error.message}`));
-      }
+        reject(new Error(`Failed to start certbot renewal: ${error.message}`));
+      });
     });
   }
 
@@ -475,26 +436,23 @@ class CertbotService {
    */
   async renewCertificateWithDNS(domain, io = null) {
     try {
-      if (!this.cloudnsService) {
-        throw new Error('CloudNS service not available');
-      }
-
-      // For DNS method renewals, use acme.sh renewal command
       if (io) {
-        io.emit('ssl_renew_progress', { 
-          domain, 
+        io.emit('ssl_renew_progress', {
+          domain,
           stage: 'starting',
-          message: 'Starting DNS certificate renewal...' 
+          message: 'Starting certificate renewal with DNS challenge...'
         });
       }
 
-      const result = await execAsync(`acme.sh --renew -d ${domain} -d www.${domain} --force`);
-      
+      // Use CloudNS service for DNS renewal
+      const result = await this.cloudnsService.installSSLWithDNS(domain, '', io);
+
       if (io) {
-        io.emit('ssl_renew_complete', { 
-          domain, 
+        io.emit('ssl_renew_complete', {
+          domain,
           success: true,
-          message: 'DNS certificate renewed successfully' 
+          method: 'dns',
+          message: 'Certificate renewed successfully using DNS method'
         });
       }
 
@@ -502,16 +460,19 @@ class CertbotService {
         success: true,
         method: 'dns',
         message: 'Certificate renewed successfully using DNS method',
-        output: result.stdout
+        output: result.output || ''
       };
     } catch (error) {
-      console.error('DNS SSL renewal error:', error);
+      console.error('DNS certificate renewal error:', error);
+
       if (io) {
-        io.emit('ssl_renew_error', { 
-          domain, 
-          error: error.message 
+        io.emit('ssl_renew_error', {
+          domain,
+          method: 'dns',
+          error: error.message
         });
       }
+
       throw error;
     }
   }
@@ -520,7 +481,13 @@ class CertbotService {
    * Renew all certificates
    */
   async renewAllCertificates(io = null) {
-    try {
+    return new Promise((resolve, reject) => {
+      const args = [
+        'renew',
+        '--nginx',
+        '--non-interactive'
+      ];
+
       if (io) {
         io.emit('ssl_renew_all_progress', { 
           stage: 'starting',
@@ -528,237 +495,160 @@ class CertbotService {
         });
       }
 
-      const result = await execAsync('certbot renew');
-      
-      if (io) {
-        io.emit('ssl_renew_all_complete', { 
-          success: true,
-          message: 'All certificates renewed successfully' 
-        });
-      }
+      const certbot = spawn('certbot', args);
+      let output = '';
+      let errorOutput = '';
 
-      return {
-        success: true,
-        message: 'All certificates renewed successfully',
-        output: result.stdout
-      };
-    } catch (error) {
-      console.error('Error renewing all certificates:', error);
-      if (io) {
-        io.emit('ssl_renew_all_error', { 
-          error: error.message 
-        });
-      }
-      throw error;
-    }
-  }
+      certbot.stdout.on('data', (data) => {
+        const message = data.toString();
+        output += message;
+        console.log('Certbot renew-all stdout:', message);
 
-  /**
-   * Wait for certbot to be available (handle concurrent requests)
-   */
-  async waitForCertbotAvailability(domain, io = null, retryCount = 0) {
-    try {
-      // Check if this domain is already being processed
-      if (this.processingQueue.has(domain)) {
-        const startTime = this.processingQueue.get(domain);
-        const elapsed = Date.now() - startTime;
-        
-        if (elapsed > 300000) { // 5 minutes timeout
-          console.log(`Removing stale processing entry for ${domain}`);
-          this.processingQueue.delete(domain);
-        } else {
+        if (io) {
+          io.emit('ssl_renew_all_progress', { 
+            stage: 'progress',
+            message: message.trim() 
+          });
+        }
+      });
+
+      certbot.stderr.on('data', (data) => {
+        const message = data.toString();
+        errorOutput += message;
+        console.error('Certbot renew-all stderr:', message);
+
+        if (io) {
+          io.emit('ssl_renew_all_progress', { 
+            stage: 'warning',
+            message: message.trim() 
+          });
+        }
+      });
+
+      certbot.on('close', (code) => {
+        if (code === 0) {
           if (io) {
-            io.emit('ssl_install_progress', {
-              domain,
-              stage: 'waiting',
-              message: `Domain ${domain} is already being processed. Waiting...`
+            io.emit('ssl_renew_all_complete', { 
+              success: true,
+              message: 'All certificates renewed successfully' 
             });
           }
-          await this.sleep(5000); // Wait 5 seconds
-          return await this.waitForCertbotAvailability(domain, io, retryCount);
-        }
-      }
 
-      // Check if certbot is currently running
-      const isRunning = await this.isCertbotRunning();
-      if (isRunning) {
-        if (retryCount >= this.maxRetries) {
-          throw new Error(`Certbot is still running after ${this.maxRetries} retries. Please try again later.`);
-        }
-
-        if (io) {
-          io.emit('ssl_install_progress', {
-            domain,
-            stage: 'waiting',
-            message: `Certbot is busy. Waiting ${this.retryDelay/1000} seconds before retry ${retryCount + 1}/${this.maxRetries}...`
+          resolve({
+            success: true,
+            message: 'All certificates renewed successfully',
+            output
           });
+        } else {
+          const error = `Certbot renew-all failed with exit code ${code}: ${errorOutput}`;
+          if (io) {
+            io.emit('ssl_renew_all_error', { error });
+          }
+          reject(new Error(error));
         }
+      });
 
-        console.log(`Certbot is running. Retry ${retryCount + 1}/${this.maxRetries} for ${domain}`);
-        await this.sleep(this.retryDelay);
-        return await this.waitForCertbotAvailability(domain, io, retryCount + 1);
-      }
-
-      // Mark domain as being processed
-      this.processingQueue.set(domain, Date.now());
-      
-      if (io) {
-        io.emit('ssl_install_progress', {
-          domain,
-          stage: 'ready',
-          message: 'Certbot is available. Starting SSL installation...'
-        });
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Error waiting for certbot availability:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Check if certbot is currently running
-   */
-  async isCertbotRunning() {
-    try {
-      // Check for certbot processes
-      const { stdout } = await execAsync('pgrep -f certbot || echo "no_process"');
-      if (stdout.trim() !== 'no_process') {
-        return true;
-      }
-
-      // Check for certbot lock files
-      try {
-        await fs.access('/var/lib/letsencrypt/.certbot.lock');
-        return true;
-      } catch (lockError) {
-        // Lock file doesn't exist, certbot is not running
-      }
-
-      // Check for temporary directories that indicate certbot is running
-      try {
-        const { stdout: tmpDirs } = await execAsync('ls /tmp/ | grep certbot-log || echo "no_temp"');
-        if (tmpDirs.trim() !== 'no_temp') {
-          return true;
-        }
-      } catch (tmpError) {
-        // No temp directories found
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Error checking if certbot is running:', error);
-      return false; // Assume not running if we can't determine
-    }
-  }
-
-  /**
-   * Clean up processing queue entry for domain
-   */
-  cleanupProcessingQueue(domain) {
-    if (this.processingQueue.has(domain)) {
-      this.processingQueue.delete(domain);
-      console.log(`Cleaned up processing queue for ${domain}`);
-    }
-  }
-
-  /**
-   * Force cleanup of certbot processes and locks
-   */
-  async forceCertbotCleanup() {
-    try {
-      console.log('Performing certbot cleanup...');
-      
-      // Kill any hanging certbot processes
-      try {
-        await execAsync('pkill -f certbot');
-        console.log('Killed certbot processes');
-      } catch (error) {
-        // No processes to kill
-      }
-
-      // Remove lock files
-      try {
-        await fs.unlink('/var/lib/letsencrypt/.certbot.lock');
-        console.log('Removed certbot lock file');
-      } catch (error) {
-        // Lock file doesn't exist
-      }
-
-      // Clean up temporary directories
-      try {
-        const { stdout } = await execAsync('ls /tmp/ | grep certbot-log || echo "no_temp"');
-        if (stdout.trim() !== 'no_temp') {
-          await execAsync('rm -rf /tmp/certbot-log-*');
-          console.log('Cleaned up certbot temp directories');
-        }
-      } catch (error) {
-        // No temp directories to clean
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Error during certbot cleanup:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Sleep utility function
-   */
-  sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * Check if certbot is installed and accessible
-   */
-  async checkCertbotAvailability() {
-    try {
-      await execAsync('certbot --version');
-      return { available: true, message: 'Certbot is available' };
-    } catch (error) {
-      console.log('Certbot not available:', error.message);
-      return { available: false, message: 'Certbot not installed or not accessible' };
-    }
-  }
-
-  /**
-   * Verify nginx SSL configuration was updated correctly
-   */
-  async verifyNginxSSLConfig(domain, io = null) {
-    try {
-      const configPath = `/etc/nginx/sites-available/${domain}`;
-      const config = await fs.readFile(configPath, 'utf8');
-      
-      const hasSSLCert = config.includes('ssl_certificate');
-      const hasSSLKey = config.includes('ssl_certificate_key');
-      
-      if (hasSSLCert && hasSSLKey) {
+      certbot.on('error', (error) => {
         if (io) {
-          io.emit('ssl_install_progress', { 
-            domain, 
-            stage: 'progress',
-            message: 'Nginx SSL configuration verified' 
-          });
+          io.emit('ssl_renew_all_error', { error: error.message });
         }
-        return true;
+        reject(new Error(`Failed to start certbot renew-all: ${error.message}`));
+      });
+    });
+  }
+
+  /**
+   * Configure auto-renewal for certificates
+   */
+  async configureAutoRenew(domain, enabled) {
+    try {
+      if (enabled) {
+        // Add cron job for auto-renewal
+        const cronJob = '0 12 * * * /usr/bin/certbot renew --quiet --nginx';
+        const { stdout } = await execAsync('crontab -l 2>/dev/null || echo ""');
+
+        if (!stdout.includes('certbot renew')) {
+          await execAsync(`(crontab -l 2>/dev/null; echo "${cronJob}") | crontab -`);
+        }
+
+        return {
+          success: true,
+          message: 'Auto-renewal enabled via cron job',
+          cronJob
+        };
       } else {
-        throw new Error('Nginx SSL configuration not properly updated');
+        // Remove cron job
+        await execAsync('crontab -l | grep -v "certbot renew" | crontab -');
+
+        return {
+          success: true,
+          message: 'Auto-renewal disabled'
+        };
       }
     } catch (error) {
-      console.error('Error verifying nginx SSL config:', error);
-      throw error;
+      throw new Error(`Failed to configure auto-renewal: ${error.message}`);
     }
+  }
+
+  /**
+   * List all certificates managed by certbot
+   */
+  async listCertificates() {
+    try {
+      const { stdout } = await execAsync('certbot certificates --quiet');
+      return this.parseCertificatesList(stdout);
+    } catch (error) {
+      throw new Error(`Failed to list certificates: ${error.message}`);
+    }
+  }
+
+  /**
+   * Parse certbot certificates list output
+   */
+  parseCertificatesList(output) {
+    const certificates = [];
+    const lines = output.split('\n');
+    let currentCert = null;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('Certificate Name:')) {
+        if (currentCert) {
+          certificates.push(currentCert);
+        }
+        currentCert = {
+          name: trimmed.replace('Certificate Name:', '').trim()
+        };
+      } else if (currentCert) {
+        if (trimmed.startsWith('Domains:')) {
+          currentCert.domains = trimmed.replace('Domains:', '').trim().split(' ');
+        } else if (trimmed.startsWith('Expiry Date:')) {
+          const expiryMatch = trimmed.match(/Expiry Date: (.+?) \(/);
+          if (expiryMatch) {
+            currentCert.expiryDate = new Date(expiryMatch[1]);
+          }
+        } else if (trimmed.startsWith('Certificate Path:')) {
+          currentCert.certPath = trimmed.replace('Certificate Path:', '').trim();
+        } else if (trimmed.startsWith('Private Key Path:')) {
+          currentCert.keyPath = trimmed.replace('Private Key Path:', '').trim();
+        }
+      }
+    }
+
+    if (currentCert) {
+      certificates.push(currentCert);
+    }
+
+    return certificates;
   }
 
   /**
    * Validate domain format
    */
   isValidDomain(domain) {
-    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](?:\.[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9])*$/;
-    return domainRegex.test(domain);
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    return domainRegex.test(domain) && domain.length <= 253;
   }
 
   /**
@@ -768,6 +658,82 @@ class CertbotService {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   }
+
+  /**
+   * Verify nginx SSL configuration was updated correctly
+   */
+  async verifyNginxSSLConfig(domain, io = null) {
+    try {
+      const nginxService = require('./nginxService');
+      const nginx = new nginxService();
+
+      // Get domain configuration
+      const config = await nginx.getDomainConfig(domain);
+
+      if (!config) {
+        throw new Error(`No nginx configuration found for ${domain}`);
+      }
+
+      // Check if SSL directives were added
+      const hasSSLCertificate = config.sslCertificate && config.sslCertificate.includes(domain);
+      const hasSSLKey = config.sslCertificateKey && config.sslCertificateKey.includes(domain);
+      const hasPort443 = config.listen && config.listen.includes('443');
+
+      if (io) {
+        if (hasSSLCertificate && hasSSLKey && hasPort443) {
+          io.emit('ssl_install_progress', { 
+            domain, 
+            stage: 'verification',
+            message: 'Nginx SSL configuration verified successfully' 
+          });
+        } else {
+          io.emit('ssl_install_progress', { 
+            domain, 
+            stage: 'warning',
+            message: 'Nginx SSL configuration may need manual verification' 
+          });
+        }
+      }
+
+      return {
+        configured: hasSSLCertificate && hasSSLKey && hasPort443,
+        details: {
+          hasSSLCertificate,
+          hasSSLKey,
+          hasPort443,
+          config
+        }
+      };
+    } catch (error) {
+      console.error('Error verifying nginx SSL config:', error);
+      if (io) {
+        io.emit('ssl_install_progress', { 
+          domain, 
+          stage: 'warning',
+          message: 'Could not verify nginx configuration automatically' 
+        });
+      }
+      return { configured: false, error: error.message };
+    }
+  }
+
+  /**
+   * Check if certbot is installed and accessible
+   */
+  async checkCertbotAvailability() {
+    try {
+      const { stdout } = await execAsync('certbot --version');
+      return {
+        available: true,
+        version: stdout.trim()
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: error.message
+      };
+    }
+  }
 }
 
-module.exports = CertbotService;
+module.exports = new CertbotService();

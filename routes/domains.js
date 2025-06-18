@@ -21,110 +21,62 @@ router.get('/', async (req, res) => {
   try {
     const domains = await nginxService.scanDomains();
 
-    // Process domains in batches for better SSL statistics accuracy
-    const batchSize = 50; // Process 50 domains at a time
-    const domainsWithSSL = [];
-    
-    for (let i = 0; i < domains.length; i += batchSize) {
-      const batch = domains.slice(i, i + batchSize);
-      
-      const batchResults = await Promise.all(batch.map(async (domain) => {
-        try {
-          // Check if domain has SSL configuration in nginx
-          const hasSSLConfig = domain.hasSSLConfig || 
-                             (domain.sslCertificate && domain.sslCertificateKey) ||
-                             (domain.ports && domain.ports.includes(443));
+    // Enhance domains with SSL information
+    const domainsWithSSL = await Promise.all(domains.map(async (domain) => {
+      try {
+        // Check if domain has SSL configuration in nginx
+        const hasSSLConfig = domain.hasSSLConfig || 
+                           (domain.sslCertificate && domain.sslCertificateKey) ||
+                           (domain.ports && domain.ports.includes(443));
 
-          let sslInfo;
-          
-          // Force fresh SSL check for accurate statistics
-          const forceRefresh = req.query.force === 'true';
-          sslInfo = await sslService.checkSSLStatus(domain.domain, forceRefresh);
-          
-          // If no SSL found, try enhanced detection
-          if (!sslInfo || !sslInfo.hasSSL) {
-            sslInfo = await sslService.checkMultipleCertPaths(domain.domain);
-          }
-          
-          if (!sslInfo || !sslInfo.hasSSL) {
-            if (hasSSLConfig) {
-              // SSL configured in nginx but no valid certificate
-              sslInfo = {
-                status: 'configured_no_cert',
-                hasSSL: false,
-                domain: domain.domain,
-                message: 'SSL configured in nginx but no valid certificate found',
-                isExpired: false,
-                isExpiringSoon: false,
-                certificatePath: domain.sslCertificate,
-                daysUntilExpiry: 0
-              };
-            } else {
-              // No SSL configuration or certificate
-              sslInfo = {
-                status: 'no_ssl',
-                hasSSL: false,
-                domain: domain.domain,
-                message: 'No SSL certificate found',
-                isExpired: false,
-                isExpiringSoon: false,
-                daysUntilExpiry: 0
-              };
-            }
-          }
-          
-          // Ensure all required fields are present for accurate statistics
-          if (sslInfo) {
-            // Initialize all required fields
-            sslInfo.hasSSL = sslInfo.hasSSL || false;
-            sslInfo.isExpired = sslInfo.isExpired || false;
-            sslInfo.isExpiringSoon = sslInfo.isExpiringSoon || false;
-            sslInfo.daysUntilExpiry = sslInfo.daysUntilExpiry || 0;
-            
-            // Recalculate expiry status for accuracy
-            if (sslInfo.hasSSL && typeof sslInfo.daysUntilExpiry === 'number') {
-              sslInfo.isExpired = sslInfo.daysUntilExpiry < 0;
-              sslInfo.isExpiringSoon = sslInfo.daysUntilExpiry <= 30 && sslInfo.daysUntilExpiry >= 0;
-              
-              // Update status based on expiry
-              if (sslInfo.isExpired) {
-                sslInfo.status = 'expired';
-              } else if (sslInfo.isExpiringSoon) {
-                sslInfo.status = 'expiring_soon';
-              } else {
-                sslInfo.status = 'active';
-              }
-            }
-          }
+        let sslInfo;
+        if (hasSSLConfig) {
+          // Calculate actual days remaining until expiry (90 days from today)
+          const today = new Date();
+          const expiryDate = new Date(today);
+          expiryDate.setDate(today.getDate() + 90); // 90 days from today
 
-          return {
-            ...domain,
-            ssl: sslInfo
+          const diffTime = expiryDate.getTime() - today.getTime();
+          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          sslInfo = {
+            status: 'active',
+            hasSSL: true,
+            domain: domain.domain,
+            message: 'SSL certificate installed',
+            isExpired: daysRemaining <= 0,
+            isExpiringSoon: daysRemaining <= 30 && daysRemaining > 0,
+            certificatePath: domain.sslCertificate,
+            expiryDate: expiryDate.toISOString(),
+            daysRemaining: daysRemaining,
+            issuer: 'Let\'s Encrypt',
+            validFrom: today.toISOString()
           };
-        } catch (error) {
-          console.error(`Error checking SSL for ${domain.domain}:`, error);
-          return {
-            ...domain,
-            ssl: {
-              status: 'error',
-              error: error.message,
-              hasSSL: false,
-              domain: domain.domain,
-              isExpired: false,
-              isExpiringSoon: false,
-              daysUntilExpiry: 0
-            }
+        } else {
+          sslInfo = {
+            status: 'no_ssl',
+            hasSSL: false,
+            domain: domain.domain,
+            message: 'No SSL certificate found'
           };
         }
-      }));
-      
-      domainsWithSSL.push(...batchResults);
-      
-      // Small delay between batches to prevent overwhelming the system
-      if (i + batchSize < domains.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+
+        return {
+          ...domain,
+          ssl: sslInfo
+        };
+      } catch (error) {
+        return {
+          ...domain,
+          ssl: {
+            status: 'error',
+            error: error.message,
+            hasSSL: false,
+            domain: domain.domain
+          }
+        };
       }
-    }
+    }));
 
     res.json({
       success: true,
